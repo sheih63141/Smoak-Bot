@@ -114,7 +114,10 @@ async def on_ready() -> None:
     global _health_started
     if not _health_started:
         _health_started = True
-        await _start_health()
+        try:
+            await _start_health()
+        except Exception as e:      # порт занят — боту это не должно мешать
+            print("[health] не поднялся:", repr(e))
 
     # хуки модулей (кнопки и уведомления) — один on_ready на весь процесс
     for name, mod, hook in (
@@ -366,8 +369,11 @@ async def _start_health() -> None:
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", int(port))
-    await site.start()
-    print(f"[health] слушаю порт {port}")
+    try:
+        await site.start()
+        print(f"[health] слушаю порт {port}")
+    except OSError as e:
+        print(f"[health] порт {port} занят: {e}")
 
 
 if __name__ == "__main__":
