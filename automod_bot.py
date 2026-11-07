@@ -378,7 +378,10 @@ async def _start_health() -> None:
 
     # самопинг: бесплатный инстанс Koyeb засыпает без HTTP-трафика —
     # дёргаем свой публичный адрес каждые 4 минуты
-    domain = os.getenv("PUBLIC_URL") or os.getenv("KOYEB_PUBLIC_DOMAIN")
+    domain = (os.getenv("PUBLIC_URL")
+              or os.getenv("KOYEB_PUBLIC_DOMAIN")
+              or os.getenv("RENDER_EXTERNAL_URL")
+              or os.getenv("RAILWAY_PUBLIC_DOMAIN"))
     if domain:
         if not domain.startswith("http"):
             domain = "https://" + domain
