@@ -111,6 +111,11 @@ async def on_ready() -> None:
     if _loop is None or _loop.done():
         _loop = asyncio.create_task(idle_watcher())
 
+    global _health_started
+    if not _health_started:
+        _health_started = True
+        await _start_health()
+
     # хуки модулей (кнопки и уведомления) — один on_ready на весь процесс
     for name, mod, hook in (
         ("role_gate", globals().get("role_gate"), "on_ready"),
@@ -337,10 +342,14 @@ except Exception as e:  # модуль не обязателен
     TWITCH = False
 
 
+_health_started = False
+
+
 async def _start_health() -> None:
     """Мини-HTTP для бесплатных хостингов (Render/Koyeb/Railway требуют открытый порт)."""
     port = os.getenv("PORT")
     if not port:
+        print("[health] PORT не задан — HTTP-сервер не нужен (локальный запуск)")
         return
     try:
         from aiohttp import web
@@ -366,10 +375,6 @@ if __name__ == "__main__":
         print("❌ Нужен DISCORD_TOKEN")
         sys.exit(1)
     try:
-        try:
-            asyncio.get_event_loop().create_task(_start_health())
-        except RuntimeError:
-            pass
         client.run(TOKEN)
     except discord.PrivilegedIntentsRequired:
         print("\n" + "=" * 68)
