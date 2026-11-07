@@ -1,0 +1,19 @@
+# Linux/VPS: положить в /etc/systemd/system/smoak-bot.service
+# затем: sudo systemctl daemon-reload && sudo systemctl enable --now smoak-bot
+[Unit]
+Description=SmoakTeam Discord bot
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/discord-server
+Environment=DISCORD_TOKEN=ВСТАВЬ_ТОКЕН
+Environment=GUILD_ID=1568607492991353053
+Environment=MEMBERS_INTENT=1
+Environment=IDLE_MINUTES=15
+ExecStart=/usr/bin/python3 -u automod_bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
