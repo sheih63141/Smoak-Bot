@@ -374,6 +374,30 @@ async def _start_health() -> None:
         print(f"[health] слушаю порт {port}")
     except OSError as e:
         print(f"[health] порт {port} занят: {e}")
+        return
+
+    # самопинг: бесплатный инстанс Koyeb засыпает без HTTP-трафика —
+    # дёргаем свой публичный адрес каждые 4 минуты
+    domain = os.getenv("PUBLIC_URL") or os.getenv("KOYEB_PUBLIC_DOMAIN")
+    if domain:
+        if not domain.startswith("http"):
+            domain = "https://" + domain
+        asyncio.create_task(_keep_awake(domain.rstrip("/")))
+        print(f"[health] самопинг включён → {domain}")
+
+
+async def _keep_awake(url: str) -> None:
+    """Каждые 4 минуты пингует собственный /health, чтобы инстанс не засыпал."""
+    import aiohttp
+    await asyncio.sleep(30)
+    while True:
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as s:
+                async with s.get(f"{url}/health") as r:
+                    print(f"[keep-awake] {r.status}")
+        except Exception as e:
+            print("[keep-awake]", repr(e))
+        await asyncio.sleep(240)
 
 
 if __name__ == "__main__":
