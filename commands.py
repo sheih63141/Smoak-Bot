@@ -22,9 +22,8 @@ import discord
 import moderation as mod
 
 PREFIXES = ("/", "!")
-COMMANDS = ("мут", "замутить", "mute", "анмут", "снятьмут", "размут", "unmute",
-            "кик", "выгнать", "kick", "бан", "забанить", "ban", "пред", "варн", "warn",
-            "помощь", "help")
+# только русские и без дублей — одна команда на действие
+COMMANDS = ("мут", "снятьмут", "кик", "бан", "пред", "помощь")
 LOG_CHANNEL = "логи"
 
 STAFF_ROLES = ["🧰 Хелпер", "🔨 Модератор", "🛡 Администратор", "👑 Владелец"]
@@ -44,7 +43,6 @@ HELP = """**🛠 Команды модерации**
 /помощь                   — эта шпаргалка
 ```
 
-**Русские варианты:** `/замутить` · `/размут` · `/анмут` · `/выгнать` · `/забанить` · `/варн`
 **Время:** `30с` · `10м` · `2ч` · `7д` (без времени — 1 час, максимум 28 дней)
 **Кого:** @упоминание, ник или ID
 **Работает** и текстом с `!`, например `!мут @ник 10м спам`.
@@ -153,7 +151,7 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
     guild = message.guild
     author = message.author
 
-    if cmd in ("помощь", "help"):
+    if cmd in ("помощь",):
         await _reply(message, HELP, 0x3498DB)
         return True
 
@@ -168,7 +166,7 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
         return True
 
     # ---- АНМУТ ----
-    if cmd in ("анмут", "снятьмут", "размут", "unmute"):
+    if cmd in ("снятьмут", "анмут", "размут", "unmute"):
         try:
             await target.timeout(None, reason=f"анмут: {author}")
         except discord.HTTPException:
@@ -187,13 +185,13 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
     reason = " ".join(reason.split()) or "без причины"
     reason_full = f"{reason} | модератор: {author}"
 
-    if cmd in ("пред", "варн", "warn"):
+    if cmd in ("пред",):
         await _reply(message, f"⚠️ **{target.display_name}** получил предупреждение\n"
                               f"Причина: {reason}", 0xE67E22)
         await _log(guild, f"⚠️ {author.mention} выдал предупреждение {target.mention}. Причина: {reason}")
         return True
 
-    if cmd in ("мут", "замутить", "mute"):
+    if cmd in ("мут",):
         dur = duration or datetime.timedelta(hours=1)
         if dur > datetime.timedelta(days=28):
             dur = datetime.timedelta(days=28)
@@ -207,7 +205,7 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
         await _log(guild, f"🔇 {author.mention} → мут {target.mention} на {res}. Причина: {reason}")
         return True
 
-    if cmd in ("кик", "выгнать", "kick"):
+    if cmd in ("кик",):
         try:
             await target.kick(reason=reason_full)
         except discord.HTTPException as e:
@@ -217,7 +215,7 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
         await _log(guild, f"👢 {author.mention} кикнул {target} ({target.id}). Причина: {reason}")
         return True
 
-    if cmd in ("бан", "забанить", "ban"):
+    if cmd in ("бан",):
         try:
             await target.ban(reason=reason_full, delete_message_days=0)
         except discord.HTTPException as e:

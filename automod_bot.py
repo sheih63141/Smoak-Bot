@@ -44,7 +44,7 @@ MUTE_TIMEOUT_MINUTES = int(os.getenv("MUTE_TIMEOUT_MINUTES", "60"))
 AUTO_TIMEOUT_ON_ROLE = os.getenv("AUTO_TIMEOUT_ON_ROLE", "1") == "1"
 
 MUTED_ROLE = os.getenv("MUTED_ROLE", "🔇 Мут")
-MUTE_ZONE = "🤐 Мут-зона"
+MUTE_ZONE = "В муте"
 AFK_NAME = "AFK"
 LOG_CHANNEL = "логи"
 
@@ -61,7 +61,9 @@ intents.members = MEMBERS_INTENT   # привилегированный — вк
 intents.voice_states = True
 intents.guilds = True
 
-client = discord.Client(intents=intents)
+from discord.ext import commands as _dp_commands
+
+client = _dp_commands.Bot(command_prefix="!", intents=intents, help_command=None)
 last_activity: dict[tuple[int, int], datetime.datetime] = {}
 _loop: asyncio.Task | None = None
 
@@ -133,9 +135,14 @@ async def on_ready() -> None:
 
     try:
         import slash_commands
-        await slash_commands.register(client, TOKEN)
+        slash_commands.build(client)
+        client.add_view(slash_commands.NickButton())
+        synced = await client.tree.sync()
+        print("[slash] команды синхронизированы: " + ", ".join("/" + c.name for c in synced))
+        for g in client.guilds:
+            await slash_commands.ensure_nick_panel(g)
     except Exception as e:
-        print("slash_commands.register:", repr(e))
+        print("slash_commands:", repr(e))
 
     # хуки модулей (кнопки и уведомления) — один on_ready на весь процесс
     for name, mod, hook in (
@@ -231,6 +238,11 @@ async def on_member_join(member: discord.Member) -> None:
             await mod.handle_member_join(member)
         except Exception as e:
             print("join_gate:", repr(e))
+    try:
+        import slash_commands
+        await slash_commands.prompt_newcomer(member)
+    except Exception as e:
+        print("nick prompt:", repr(e))
 
 
 # ------------------------------------------------------- 2. перекидывание в мут-зону + трекинг
@@ -274,24 +286,6 @@ async def on_voice_state_update(member: discord.Member,
     )
     if fired or key not in last_activity:
         last_activity[key] = utcnow()
-
-
-@client.event
-async def on_socket_raw_receive(msg) -> None:
-    """Слэш-команды: библиотека их не разбирает, ловим сырое событие."""
-    if "INTERACTION_CREATE" not in str(msg)[:150]:
-        return
-    try:
-        data = json.loads(msg)
-    except Exception:
-        return
-    if data.get("t") != "INTERACTION_CREATE":
-        return
-    try:
-        import slash_commands
-        await slash_commands.handle(client, TOKEN, data["d"])
-    except Exception as e:
-        print("interaction:", repr(e))
 
 
 @client.event

@@ -1,172 +1,203 @@
 #!/usr/bin/env python3
 """
-Русские слэш-команды модерации.
-/мут /замутить /анмут /снятьмут /размут /кик /выгнать /бан /забанить /пред
+Русские слэш-команды + выдача ника с Твича.
 
-Мут = выдача роли 🔇 Мут: человек перестаёт видеть все каналы,
-кроме «💤 AFK» и «🔇 В муте». Срок снимается ботом автоматически.
+Команды модерации (коротко, без дублей):
+    /мут        — роль 🔇 Мут: видит только «💤 AFK» и «🔇 В муте», микрофон запрещён
+    /снятьмут   — снять мут
+    /кик        — выгнать
+    /бан        — забанить
+    /пред       — предупреждение
+    /помощь     — шпаргалка
 
-Дерево команд в этой сборке discord.py недоступно, поэтому:
-  1) команды публикуем через REST (PUT /applications/{id}/commands);
-  2) события ловим сырым пакетом в automod_bot.on_socket_raw_receive;
-  3) отвечаем через REST-колбэк (успеть за 3 секунды), ответ виден только модератору.
+Ник с Твича:
+    в «#получить-роль» висит кнопка «Указать ник» → модалка «Ник: (Твича)» →
+    жмёшь «Готово» → бот ставит ник. Новенького бот сам зовёт в канал.
 """
 from __future__ import annotations
 
-import asyncio
-import json
-import urllib.error
-import urllib.request
-
 import discord
+from discord import app_commands
 
 import commands as textcmd
 import moderation as mod
 
-API = "https://discord.com/api/v10"
-
-TARGET = {"type": 6, "name": "ник", "description": "Кого наказываем", "required": True}
-TIME = {"type": 3, "name": "время", "description": "10м, 2ч, 7д (если пусто — 1 час)", "required": False}
-REASON = {"type": 3, "name": "причина", "description": "За что наказание", "required": False}
-
-# имя команды -> действие
-ALIASES = {
-    "мут": "мут", "замут": "мут", "замутить": "мут",
-    "анмут": "анмут", "снятьмут": "анмут", "размут": "анмут",
-    "кик": "кик", "выгнать": "кик",
-    "бан": "бан", "забанить": "бан",
-    "варн": "варн", "пред": "варн",
-    "помощь": "помощь",
-}
-
-COMMANDS = [
-    {"name": "мут", "description": "Замутить участника (роль 🔇 Мут, только AFK и «В муте»)",
-     "options": [TARGET, TIME, REASON]},
-    {"name": "замутить", "description": "То же, что /мут", "options": [TARGET, TIME, REASON]},
-    {"name": "снятьмут", "description": "Снять мут с участника", "options": [TARGET]},
-    {"name": "анмут", "description": "То же, что /снятьмут", "options": [TARGET]},
-    {"name": "кик", "description": "Выгнать участника с сервера", "options": [TARGET, REASON]},
-    {"name": "бан", "description": "Забанить участника", "options": [TARGET, REASON]},
-    {"name": "пред", "description": "Выдать предупреждение", "options": [TARGET, REASON]},
-    {"name": "помощь", "description": "Все команды модерации"},
-]
+NICK_CHANNEL = "получить-роль"
+PANEL_MARK = "УКАЗАТЬ НИК TWITCH"
 
 
-def _rest(method: str, path: str, token: str, data=None):
-    body = json.dumps(data).encode() if data is not None else None
-    req = urllib.request.Request(API + path, data=body, method=method)
-    req.add_header("Authorization", f"Bot {token}")
-    req.add_header("User-Agent", "DiscordBot (smoak, 1.0)")
-    if body:
-        req.add_header("Content-Type", "application/json")
+# ---------------------------------------------------------------- модалка ника
+
+class NickModal(discord.ui.Modal, title="Твой ник с Твича"):
+    def __init__(self):
+        super().__init__(timeout=600)
+        self.nick = discord.ui.TextInput(
+            label="Ник: (Твича)",
+            placeholder="например: smoak52",
+            min_length=2, max_length=32, required=True)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        value = str(self.nick.value).strip()
+        try:
+            await interaction.user.edit(nick=value)
+        except discord.Forbidden:
+            await interaction.response.send_message(
+                "⛔ Не могу сменить ник: владелец сервера или роль выше моей.", ephemeral=True)
+            return
+        except discord.HTTPException as e:
+            await interaction.response.send_message(f"❌ Discord не дал сменить ник: {e}", ephemeral=True)
+            return
+        await interaction.response.send_message(f"✅ Готово, теперь ты **{value}**", ephemeral=True)
+
+
+class NickButton(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)  # постоянная кнопка — работает и после перезапуска
+
+    @discord.ui.button(label="Указать ник", emoji="🎮", style=discord.ButtonStyle.success,
+                       custom_id="smoak:setnick")
+    async def set_nick(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(NickModal())
+
+
+def nick_panel_embed() -> discord.Embed:
+    e = discord.Embed(
+        title="Ник: (Твича)",
+        description=("Нажми **Указать ник** и впиши свой ник с Twitch — бот сразу поставит его "
+                     "тебе на сервере.\n\n"
+                     "Пример: `smoak52` → ник на сервере станет **smoak52**.\n"
+                     "Поменять можно в любой момент."),
+        color=0x9146FF)
+    e.set_footer(text=PANEL_MARK)
+    return e
+
+
+async def ensure_nick_panel(guild: discord.Guild) -> None:
+    ch = discord.utils.get(guild.text_channels, name=NICK_CHANNEL)
+    if ch is None:
+        return
     try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            raw = r.read()
-            return r.status, (json.loads(raw) if raw else {})
-    except urllib.error.HTTPError as e:
-        return e.code, json.loads(e.read() or b"{}")
-
-
-async def register(client: discord.Client, token: str) -> None:
-    app_id = getattr(client, "application_id", None) or (client.user.id if client.user else None)
-    if not app_id:
-        return
-    loop = asyncio.get_running_loop()
-    code, res = await loop.run_in_executor(
-        None, lambda: _rest("PUT", f"/applications/{app_id}/commands", token, COMMANDS))
-    if code in (200, 201):
-        print("[slash] русские команды: " + ", ".join("/" + c["name"] for c in COMMANDS))
-    else:
-        print("[slash] регистрация не удалась:", code, res.get("message"))
-
-
-def _opt(name: str, value):
-    return {"name": name, "value": value, "type": 3}
-
-
-async def handle(client: discord.Client, token: str, data: dict) -> None:
-    if data.get("type") != 2:
-        return
-    name = ((data.get("data") or {}).get("name") or "").lower()
-    action = ALIASES.get(name)
-    if action is None:
-        return
-    guild = client.get_guild(int(data["guild_id"])) if data.get("guild_id") else None
-    if guild is None or not data.get("member"):
-        return
-    author = guild.get_member(int(data["member"]["user"]["id"]))
-    if author is None:
-        return
-
-    loop = asyncio.get_running_loop()
-
-    async def respond(text: str) -> None:
-        payload = {"type": 4, "data": {"content": text, "flags": 64,
-                                       "allowed_mentions": {"parse": []}}}
-        await loop.run_in_executor(
-            None, lambda: _rest("POST", f"/interactions/{data['id']}/{data['token']}/callback",
-                                token, payload))
-
-    if not textcmd._staff(author):
-        await respond("⛔ Эти команды доступны только команде сервера.")
-        return
-
-    if action == "помощь":
-        await respond(textcmd.HELP)
-        return
-
-    opts = {o["name"]: o.get("value") for o in ((data.get("data") or {}).get("options") or [])}
-    target = None
-    if opts.get("ник"):
-        target = guild.get_member(int(opts["ник"]))
-        if target is None:
-            try:
-                target = await guild.fetch_member(int(opts["ник"]))
-            except discord.HTTPException:
-                target = None
-    if target is None:
-        await respond("❓ Не нашёл такого участника.")
-        return
-
-    err = textcmd._can_punish(author, target)
-    if err:
-        await respond(f"⛔ {err}")
-        return
-
-    reason = (opts.get("причина") or "без причины").strip()
-    reason_full = f"{reason} | модератор: {author}"
-
-    try:
-        if action == "мут":
-            dur = mod.parse_duration(opts.get("время"))
-            if dur is None:
-                dur = mod.parse_duration("1ч")
-            res = await mod.apply_mute(guild, target, dur, reason, author)
-            if res.startswith("Discord") or res.startswith("роль"):
-                await respond(f"❌ {res}")
+        async for m in ch.history(limit=40):
+            if m.author.id == guild.me.id and m.embeds and \
+                    (m.embeds[0].footer and m.embeds[0].footer.text == PANEL_MARK):
                 return
-            await respond(
-                f"🔇 **{target.display_name}** замучен на **{res}**\n"
-                f"Причина: {reason}\n"
-                f"Видит только «💤 AFK» и «🔇 В муте». Мут снимется сам.")
-            await textcmd._log(guild, f"🔇 {author.mention} замутил {target.mention} на {res}. "
-                                      f"Причина: {reason}")
-        elif action == "анмут":
-            ok = await mod.remove_mute(guild, target, str(author))
-            await respond(f"🔊 **{target.display_name}** размучен." if ok
-                          else f"ℹ️ У **{target.display_name}** не было мута.")
-            await textcmd._log(guild, f"🔊 {author.mention} снял мут с {target.mention}")
-        elif action == "кик":
-            await target.kick(reason=reason_full)
-            await respond(f"👢 **{target.display_name}** выгнан\nПричина: {reason}")
-            await textcmd._log(guild, f"👢 {author.mention} выгнал {target} ({target.id}). Причина: {reason}")
-        elif action == "бан":
-            await target.ban(reason=reason_full, delete_message_days=0)
-            await respond(f"🔨 **{target.display_name}** забанен\nПричина: {reason}")
-            await textcmd._log(guild, f"🔨 {author.mention} забанил {target} ({target.id}). Причина: {reason}")
-        elif action == "варн":
-            await respond(f"⚠️ **{target.display_name}** получил предупреждение\nПричина: {reason}")
-            await textcmd._log(guild, f"⚠️ {author.mention} выдал предупреждение {target.mention}. "
-                                      f"Причина: {reason}")
+        await ch.send(embed=nick_panel_embed(), view=NickButton())
+        print("[nick] панель ника готова")
     except discord.HTTPException as e:
-        await respond(f"❌ Discord не дал выполнить: {e}")
+        print("[nick] панель:", repr(e))
+
+
+async def prompt_newcomer(member: discord.Member) -> None:
+    """Зовём новичка указать ник — в канал, без личных сообщений."""
+    ch = discord.utils.get(member.guild.text_channels, name=NICK_CHANNEL)
+    if ch is None:
+        return
+    try:
+        await ch.send(
+            f"{member.mention} добро пожаловать! Поставь ник с Твича: нажми кнопку ниже → "
+            f"**Ник: (Твича)** → **Готово**.",
+            view=NickButton(), delete_after=900)
+    except discord.HTTPException:
+        pass
+
+
+# ---------------------------------------------------------------- команды
+
+def build(role_mute):
+    """Регистрирует команды на дереве бота."""
+    group = app_commands.Group
+
+    async def _target(interaction: discord.Interaction, member: discord.Member):
+        err = textcmd._can_punish(interaction.user, member)
+        if err:
+            await interaction.response.send_message(f"⛔ {err}", ephemeral=True)
+            return False
+        if not textcmd._staff(interaction.user):
+            await interaction.response.send_message(
+                "⛔ Эти команды доступны только команде сервера.", ephemeral=True)
+            return False
+        return True
+
+    @app_commands.command(name="мут", description="Мут: роль 🔇 Мут, видит только AFK и «В муте»")
+    @app_commands.describe(ник="Кого наказываем", время="10м, 2ч, 7д (пусто — 1 час)",
+                           причина="За что наказание")
+    async def mute(interaction: discord.Interaction, ник: discord.Member,
+                   время: str | None = None, причина: str | None = None):
+        if not await _target(interaction, ник):
+            return
+        dur = mod.parse_duration(время) or mod.parse_duration("1ч")
+        reason = (причина or "без причины").strip()
+        res = await mod.apply_mute(interaction.guild, ник, dur, reason, interaction.user)
+        if res.startswith(("Discord", "роль")):
+            await interaction.response.send_message(f"❌ {res}", ephemeral=True)
+            return
+        await interaction.response.send_message(
+            f"🔇 **{ник.display_name}** замучен на **{res}**\nПричина: {reason}\n"
+            f"Доступны только «💤 AFK» и «🔇 В муте», микрофон закрыт. Мут снимется сам.",
+            ephemeral=True)
+        await textcmd._log(interaction.guild,
+                           f"🔇 {interaction.user.mention} замутил {ник.mention} на {res}. Причина: {reason}")
+
+    @app_commands.command(name="снятьмут", description="Снять мут с участника")
+    @app_commands.describe(ник="С кого снимаем")
+    async def unmute(interaction: discord.Interaction, ник: discord.Member):
+        err = textcmd._can_punish(interaction.user, ник)
+        if err:
+            await interaction.response.send_message(f"⛔ {err}", ephemeral=True)
+            return
+        ok = await mod.remove_mute(interaction.guild, ник, str(interaction.user))
+        await interaction.response.send_message(
+            f"🔊 **{ник.display_name}** размучен." if ok else f"ℹ️ У **{ник.display_name}** не было мута.",
+            ephemeral=True)
+        await textcmd._log(interaction.guild, f"🔊 {interaction.user.mention} снял мут с {ник.mention}")
+
+    @app_commands.command(name="кик", description="Выгнать участника с сервера")
+    @app_commands.describe(ник="Кого выгоняем", причина="За что")
+    async def kick(interaction: discord.Interaction, ник: discord.Member, причина: str | None = None):
+        if not await _target(interaction, ник):
+            return
+        reason = (причина or "без причины").strip()
+        try:
+            await ник.kick(reason=f"{reason} | модератор: {interaction.user}")
+        except discord.HTTPException as e:
+            await interaction.response.send_message(f"❌ Не смог выгнать: {e}", ephemeral=True)
+            return
+        await interaction.response.send_message(f"👢 **{ник.display_name}** выгнан. Причина: {reason}",
+                                                ephemeral=True)
+        await textcmd._log(interaction.guild,
+                           f"👢 {interaction.user.mention} выгнал {ник} ({ник.id}). Причина: {reason}")
+
+    @app_commands.command(name="бан", description="Забанить участника")
+    @app_commands.describe(ник="Кого баним", причина="За что")
+    async def ban(interaction: discord.Interaction, ник: discord.Member, причина: str | None = None):
+        if not await _target(interaction, ник):
+            return
+        reason = (причина or "без причины").strip()
+        try:
+            await ник.ban(reason=f"{reason} | модератор: {interaction.user}", delete_message_days=0)
+        except discord.HTTPException as e:
+            await interaction.response.send_message(f"❌ Не смог забанить: {e}", ephemeral=True)
+            return
+        await interaction.response.send_message(f"🔨 **{ник.display_name}** забанен. Причина: {reason}",
+                                                ephemeral=True)
+        await textcmd._log(interaction.guild,
+                           f"🔨 {interaction.user.mention} забанил {ник} ({ник.id}). Причина: {reason}")
+
+    @app_commands.command(name="пред", description="Выдать предупреждение")
+    @app_commands.describe(ник="Кому", причина="За что")
+    async def warn(interaction: discord.Interaction, ник: discord.Member, причина: str | None = None):
+        if not await _target(interaction, ник):
+            return
+        reason = (причина or "без причины").strip()
+        await interaction.response.send_message(
+            f"⚠️ **{ник.display_name}** получил предупреждение. Причина: {reason}", ephemeral=True)
+        await textcmd._log(interaction.guild,
+                           f"⚠️ {interaction.user.mention} выдал предупреждение {ник.mention}. Причина: {reason}")
+
+    @app_commands.command(name="помощь", description="Все команды модерации")
+    async def help_cmd(interaction: discord.Interaction):
+        await interaction.response.send_message(textcmd.HELP, ephemeral=True)
+
+    for cmd in (mute, unmute, kick, ban, warn, help_cmd):
+        role_mute.tree.add_command(cmd)
+    return role_mute
