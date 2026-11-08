@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Сторож роли «👑 Владелец».
+Сторож роли «Руководитель».
 
 Раз в GUARD_SECONDS секунд бот проверяет участника через REST (не нужен
 Server Members Intent) и, если роли нет, сразу возвращает её. Дополнительно
@@ -8,7 +8,7 @@ Server Members Intent) и, если роли нет, сразу возвраща
 
 Кого сторожим и какую роль — через переменные окружения:
     GUARD_USER_ID=970550805277081601   .dimas.gg
-    GUARD_ROLE_ID=1568626336606593185  👑 Владелец
+    GUARD_ROLE_ID=1568932376858468442              Руководитель
     GUARD_SECONDS=5                    интервал проверки
 """
 from __future__ import annotations
@@ -21,7 +21,8 @@ import discord
 
 GUILD_ID = int(os.getenv("GUILD_ID", "1568607492991353053"))
 GUARD_USER_ID = int(os.getenv("GUARD_USER_ID", "970550805277081601"))
-GUARD_ROLE_ID = int(os.getenv("GUARD_ROLE_ID", "1568626336606593185"))
+GUARD_ROLE_ID = int(os.getenv("GUARD_ROLE_ID", "1568932376858468442"))
+GUARD_ROLE_NAME = "Руководитель"
 GUARD_SECONDS = max(2, int(os.getenv("GUARD_SECONDS", "5")))
 LOG_CHANNEL = "📋│логи"
 
@@ -30,7 +31,7 @@ _last: dict[int, float] = {}
 
 def _role(guild: discord.Guild):
     return (guild.get_role(GUARD_ROLE_ID)
-            or discord.utils.get(guild.roles, name="👑 Владелец"))
+            or discord.utils.get(guild.roles, name=GUARD_ROLE_NAME))
 
 
 async def restore(client, guild: discord.Guild, member=None, why: str = "пропала") -> bool:
@@ -50,16 +51,16 @@ async def restore(client, guild: discord.Guild, member=None, why: str = "про�
     if now - _last.get(guild.id, 0) < 3:
         return False
     try:
-        await member.add_roles(role, reason="сторож: роль Владельца возвращена")
+        await member.add_roles(role, reason="сторож: роль Руководителя возвращена")
     except discord.HTTPException as e:
         print("[guard] не смог вернуть роль:", e)
         return False
     _last[guild.id] = now
-    print(f"[guard] 👑 Владелец возвращён: {member} ({why})")
+    print(f"[guard] Руководитель возвращён: {member} ({why})")
     ch = discord.utils.get(guild.text_channels, name=LOG_CHANNEL)
     if ch:
         try:
-            await ch.send(f"👑 Роль «Владелец» возвращена {member.mention} ({why}).")
+            await ch.send(f"🎖 Роль «Руководитель» возвращена {member.mention} ({why}).")
         except discord.HTTPException:
             pass
     return True

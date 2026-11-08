@@ -166,7 +166,7 @@ async def on_ready() -> None:
     if not _guard_started and GUARD:
         _guard_started = True
         asyncio.create_task(role_guard.watch(client))
-        print(f"  сторож роли Владельца: вкл (каждые {role_guard.GUARD_SECONDS} с)")
+        print(f"  сторож роли Руководителя: вкл (каждые {role_guard.GUARD_SECONDS} с)")
 
     # тяжёлую настройку прав каналов выносим в фон: on_ready должен вернуться сразу,
     # иначе Discord считает, что приложение не отвечает
@@ -234,7 +234,7 @@ async def on_member_update(before: discord.Member, after: discord.Member) -> Non
         except Exception as e:
             print("join_gate:", repr(e))
 
-    # вернуть «👑 Владелец», если роль сняли
+    # вернуть «Руководитель», если роль сняли
     guard = globals().get("role_guard")
     if guard:
         try:
@@ -351,7 +351,7 @@ except Exception as e:
     GATE = False
 GATE_BTN = False
 
-# --- сторож роли «👑 Владелец»: возвращает, если сняли ---
+# --- сторож роли «Руководитель»: возвращает, если сняли ---
 try:
     import role_guard
     GUARD = True
