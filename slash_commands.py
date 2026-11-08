@@ -22,7 +22,7 @@ from discord import app_commands
 import commands as textcmd
 import moderation as mod
 
-NICK_CHANNEL = "получить-роль"
+NICK_CHANNEL = "🔑│получить-роль"
 PANEL_MARK = "УКАЗАТЬ НИК TWITCH"
 
 

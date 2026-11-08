@@ -18,11 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import io
+import os
 
 import discord
 
-PANEL_CHANNEL = "🎫-подать-тикет"
-LOG_CHANNEL = "логи"
+PANEL_CHANNEL = os.getenv("TICKET_PANEL", "🎫│подать-тикет")
+LOG_CHANNEL = "📋│логи"
 
 QUESTION_EMOJI = "🎫"
 ADMIN_EMOJI = "📋"

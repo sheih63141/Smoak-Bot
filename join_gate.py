@@ -24,8 +24,8 @@ import os
 import discord
 
 MEMBER_ROLE = os.getenv("MEMBER_ROLE", "👋 Участник")
-WELCOME_CHANNEL = os.getenv("WELCOME_CHANNEL", "общий-чат")
-LOG_CHANNEL = os.getenv("LOG_CHANNEL", "логи")
+WELCOME_CHANNEL = os.getenv("WELCOME_CHANNEL", "💬│флудилка")
+LOG_CHANNEL = os.getenv("LOG_CHANNEL", "📋│логи")
 
 
 async def _log(guild: discord.Guild, text: str) -> None:

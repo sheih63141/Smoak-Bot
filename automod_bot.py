@@ -45,8 +45,8 @@ AUTO_TIMEOUT_ON_ROLE = os.getenv("AUTO_TIMEOUT_ON_ROLE", "1") == "1"
 
 MUTED_ROLE = os.getenv("MUTED_ROLE", "🔇 Мут")
 MUTE_ZONE = "В муте"
-AFK_NAME = "AFK"
-LOG_CHANNEL = "логи"
+AFK_NAME = "😴 AFK"
+LOG_CHANNEL = "📋│логи"
 
 # кого не трогаем при авто-AFK
 SKIP_ROLES = {

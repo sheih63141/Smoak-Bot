@@ -21,11 +21,11 @@ import discord
 from discord import ui
 
 MEMBER_ROLE = os.getenv("MEMBER_ROLE", "👋 Участник")
-RULES_CHANNEL = os.getenv("RULES_CHANNEL", "правила")
+RULES_CHANNEL = os.getenv("RULES_CHANNEL", "📕│правила")
 CHECK = "✅"
 GATE_EMOJI = CHECK
-GATE_CHANNEL = os.getenv("GATE_CHANNEL", "получить-роль")
-LOG_CHANNEL = os.getenv("LOG_CHANNEL", "логи")
+GATE_CHANNEL = os.getenv("GATE_CHANNEL", "🔑│получить-роль")
+LOG_CHANNEL = os.getenv("LOG_CHANNEL", "📋│логи")
 
 TEXT = (
     "**Получение роли**\n"
