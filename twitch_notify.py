@@ -40,7 +40,7 @@ import discord
 
 TWITCH_LOGIN = os.getenv("TWITCH_LOGIN", "smoak52")
 STREAM_CHANNEL = os.getenv("STREAM_CHANNEL", "анонсы-стримов")
-POLL_SECONDS = int(os.getenv("POLL_SECONDS", "60"))
+POLL_SECONDS = int(os.getenv("POLL_SECONDS", "30"))
 PING_ROLE = os.getenv("PING_ROLE", "").strip()
 FAKE_LIVE = os.getenv("TWITCH_FAKE_LIVE", "0") == "1"
 

@@ -163,14 +163,7 @@ async def create_ticket(guild: discord.Guild, member: discord.Member, emoji: str
         pass
 
     await _log(guild, f"{emoji} Открыт тикет {channel.mention} ({route['kind']}) от {member.mention}")
-    try:
-        await member.send(
-            f"Твой тикет открыт: **{channel.name}**\n"
-            f"Категория **{route['category']}** в сервере **{guild.name}**.\n"
-            f"Пиши там — ответит команда. Закрыть свой тикет можно реакцией 🔒 внутри него."
-        )
-    except discord.HTTPException:
-        pass  # личка закрыта — не страшно
+    # в личные сообщения не пишем — только канал тикета
     return channel
 
 
@@ -213,6 +206,22 @@ def _staff_names(channel: discord.TextChannel) -> list[str]:
     return []
 
 
+_RECENT: dict = {}
+
+
+def _already_handled(payload) -> bool:
+    import time
+    key = (payload.user_id, payload.channel_id, payload.message_id, str(payload.emoji))
+    now = time.monotonic()
+    for k, ts in list(_RECENT.items()):
+        if now - ts > 20:
+            _RECENT.pop(k, None)
+    if key in _RECENT:
+        return True
+    _RECENT[key] = now
+    return False
+
+
 async def handle_raw_reaction_add(client: discord.Client, payload) -> bool:
     """True — реакция обработана этим модулем."""
     if payload.guild_id is None:
@@ -223,6 +232,8 @@ async def handle_raw_reaction_add(client: discord.Client, payload) -> bool:
     emoji = str(payload.emoji)
     if emoji not in (*ROUTES, CLOSE_EMOJI):
         return False
+    if _already_handled(payload):
+        return True
 
     channel = guild.get_channel(payload.channel_id)
     if channel is None:

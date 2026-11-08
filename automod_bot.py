@@ -30,6 +30,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import datetime
 import os
 import sys
@@ -118,6 +119,12 @@ async def on_ready() -> None:
             await _start_health()
         except Exception as e:      # порт занят — боту это не должно мешать
             print("[health] не поднялся:", repr(e))
+
+    try:
+        import slash_commands
+        await slash_commands.register(client, TOKEN)
+    except Exception as e:
+        print("slash_commands.register:", repr(e))
 
     # хуки модулей (кнопки и уведомления) — один on_ready на весь процесс
     for name, mod, hook in (
@@ -256,6 +263,24 @@ async def on_voice_state_update(member: discord.Member,
     )
     if fired or key not in last_activity:
         last_activity[key] = utcnow()
+
+
+@client.event
+async def on_socket_raw_receive(msg) -> None:
+    """Слэш-команды: библиотека их не разбирает, ловим сырое событие."""
+    if "INTERACTION_CREATE" not in str(msg)[:150]:
+        return
+    try:
+        data = json.loads(msg)
+    except Exception:
+        return
+    if data.get("t") != "INTERACTION_CREATE":
+        return
+    try:
+        import slash_commands
+        await slash_commands.handle(client, TOKEN, data["d"])
+    except Exception as e:
+        print("interaction:", repr(e))
 
 
 @client.event
