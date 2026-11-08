@@ -156,13 +156,17 @@ async def on_ready() -> None:
     print(f"  режим: авто-AFK выключен | "
           f"тайм-аут по роли {MUTE_TIMEOUT_MINUTES} мин ({'вкл' if AUTO_TIMEOUT_ON_ROLE else 'выкл'})")
 
-    global _health_started
+    global _health_started, _guard_started
     if not _health_started:
         _health_started = True
         try:
             await _start_health()
         except Exception as e:      # порт занят — боту это не должно мешать
             print("[health] не поднялся:", repr(e))
+    if not _guard_started and GUARD:
+        _guard_started = True
+        asyncio.create_task(role_guard.watch(client))
+        print(f"  сторож роли Владельца: вкл (каждые {role_guard.GUARD_SECONDS} с)")
 
     # тяжёлую настройку прав каналов выносим в фон: on_ready должен вернуться сразу,
     # иначе Discord считает, что приложение не отвечает
@@ -229,6 +233,14 @@ async def on_member_update(before: discord.Member, after: discord.Member) -> Non
             await mod.handle_member_update(before, after)
         except Exception as e:
             print("join_gate:", repr(e))
+
+    # вернуть «👑 Владелец», если роль сняли
+    guard = globals().get("role_guard")
+    if guard:
+        try:
+            await guard.handle_member_update(client, before, after)
+        except Exception as e:
+            print("role_guard:", repr(e))
 
 
 @client.event
@@ -339,6 +351,14 @@ except Exception as e:
     GATE = False
 GATE_BTN = False
 
+# --- сторож роли «👑 Владелец»: возвращает, если сняли ---
+try:
+    import role_guard
+    GUARD = True
+except Exception as e:
+    print("role_guard не подключён:", repr(e))
+    GUARD = False
+
 # --- мут: автоснятие по истечении срока (moderation.py) ---
 try:
     import moderation as mod_core
@@ -372,6 +392,7 @@ except Exception as e:  # модуль не обязателен
 
 
 _health_started = False
+_guard_started = False
 
 
 async def _start_health() -> None:
