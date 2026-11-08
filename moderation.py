@@ -5,6 +5,7 @@
 Логика мута:
   • выдаём роль 🔇 Мут — она запрещает видеть все каналы;
   • оставляем доступ только в 💤 AFK и 🔇 В муте;
+  • «В муте» скрыта от всех, без лимита мест, зайти можно только с ролью 🔇 Мут;
   • срок хранится в mute_state.json, бот сам снимает мут по истечении;
   • после перезапуска бота мут не теряется.
 """
@@ -112,18 +113,24 @@ async def ensure_mute_setup(guild: discord.Guild) -> tuple:
     room = discord.utils.get(guild.voice_channels, name=TALK_ROOM_NAME)
     if room is None:
         room = await guild.create_voice_channel(
-            TALK_ROOM_NAME, category=cat, user_limit=2, reason="комната для замученных")
+            TALK_ROOM_NAME, category=cat, user_limit=0, reason="комната для замученных")
         print("[mute] комната создана:", room.name)
-    elif getattr(room, "category_id", None) != cat.id:
+    if getattr(room, "category_id", None) != cat.id:
         try:
             await room.edit(category=cat)
+        except discord.HTTPException:
+            pass
+    if room.user_limit:                       # без ограничений по числу людей
+        try:
+            await room.edit(user_limit=0, reason="комната мута без лимита")
         except discord.HTTPException:
             pass
     return role, room
 
 
 async def apply_channel_rules(guild: discord.Guild) -> int:
-    """Замученный не видит ничего, кроме 💤 AFK и 🔇 В муте. Возвращает число правок."""
+    """Замученный не видит ничего, кроме 💤 AFK и 🔇 В муте.
+    «В муте» скрыта от остальных, без лимита, внутри можно говорить."""
     role = mute_role(guild)
     if role is None:
         return 0
@@ -140,7 +147,12 @@ async def apply_channel_rules(guild: discord.Guild) -> int:
         else:
             pname = parents.get(getattr(ch, "category_id", None), "")
         try:
-            if is_allowed(ch, pname):
+            if pname == MUTE_CATEGORY_NAME or ch.name == TALK_ROOM_NAME:
+                # «В муте» и её категория: не видны никому, кроме замученных
+                await ch.set_permissions(guild.default_role, view_channel=False)
+                await ch.set_permissions(role, view_channel=True,
+                                         connect=True, speak=True, send_messages=False)
+            elif is_allowed(ch, pname):
                 await ch.set_permissions(role, view_channel=True,
                                          connect=isinstance(ch, discord.VoiceChannel),
                                          speak=False, send_messages=False)

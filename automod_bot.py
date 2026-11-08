@@ -103,7 +103,7 @@ async def on_ready() -> None:
               f"мут-зона: {'есть' if discord.utils.get(g.voice_channels, name=MUTE_ZONE) else 'НЕТ'} | "
               f"AFK: {'есть' if discord.utils.get(g.voice_channels, name=AFK_NAME) else 'НЕТ'}")
     print(f"  тикеты (кнопка): {'вкл' if TICKETS else 'выкл'}")
-    print(f"  автовыдача роли участника: {'вкл' if GATE else 'выкл'}")
+    print("  выдача роли участника: после ника в задании 3")
     print(f"  стрим-уведомления: {'вкл → #анонсы-стримов' if TWITCH else 'выкл'}")
     print(f"  режим: авто-AFK выключен | "
           f"тайм-аут по роли {MUTE_TIMEOUT_MINUTES} мин ({'вкл' if AUTO_TIMEOUT_ON_ROLE else 'выкл'})")
@@ -140,7 +140,6 @@ async def on_ready() -> None:
 
     # хуки модулей (кнопки и уведомления) — один on_ready на весь процесс
     for name, mod, hook in (
-        ("role_gate", globals().get("role_gate"), "on_ready"),
         ("ticket_gate", globals().get("ticket_gate"), "on_ready"),
         ("twitch_notify", globals().get("twitch_notify"), "on_ready"),
     ):
@@ -200,19 +199,12 @@ async def on_member_update(before: discord.Member, after: discord.Member) -> Non
         except discord.HTTPException as e:
             print("не смог снять тайм-аут:", e)
 
-    # хуки других модулей (например, выдача роли после принятия правил)
-    mod = globals().get("join_gate")
-    if mod:
-        try:
-            await mod.handle_member_update(before, after)
-        except Exception as e:
-            print("join_gate:", repr(e))
 
 
 @client.event
 async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
     print(f"[reaction] {payload.emoji} в канале {payload.channel_id} от {payload.user_id}")
-    for name in ("ticket_gate", "role_gate"):
+    for name in ("ticket_gate",):
         mod = globals().get(name)
         if mod is None:
             continue
@@ -226,12 +218,6 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
 
 @client.event
 async def on_member_join(member: discord.Member) -> None:
-    mod = globals().get("join_gate")
-    if mod:
-        try:
-            await mod.handle_member_join(member)
-        except Exception as e:
-            print("join_gate:", repr(e))
     try:
         import slash_commands
         await slash_commands.prompt_newcomer(member)
@@ -305,23 +291,11 @@ except Exception as e:
     print("ticket_gate не подключён:", repr(e))
     TICKETS = False
 
-# --- кнопка «получить роль» в #получить-роль (role_gate.py) ---
-try:
-    import role_gate
-    role_gate.setup(client)
-    GATE_BTN = True
-except Exception as e:
-    print("role_gate не подключён:", repr(e))
-    GATE_BTN = False
+# «получить-роль» удалён: роль выдаётся только после ника в задании 3.
+# role_gate.py и join_gate.py больше не подключаются, чтобы не было обхода.
+GATE_BTN = False
 
-# --- автовыдача роли участника при входe (join_gate.py) ---
-try:
-    import join_gate
-    join_gate.setup(client)
-    GATE = True
-except Exception as e:
-    print("join_gate не подключён:", repr(e))
-    GATE = False
+GATE = False   # автовыдача роли при входе выключена: роль только после ника
 
 # --- мут: автоснятие по истечении срока (moderation.py) ---
 try:

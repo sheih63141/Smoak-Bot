@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 """
-Русские слэш-команды + выдача ника с Твича.
+Русские слэш-команды + задание «Ник с Твича» при входе на сервер.
 
 Команды модерации (коротко, без дублей):
-    /мут        — роль 🔇 Мут: видит только «💤 AFK» и «🔇 В муте», микрофон запрещён
+    /мут        — роль 🔇 Мут: видит только «😴 AFK» и «В муте»
     /снятьмут   — снять мут
     /кик        — выгнать
     /бан        — забанить
     /пред       — предупреждение
     /помощь     — шпаргалка
 
-Ник с Твича:
-    в «#получить-роль» висит кнопка «Указать ник» → модалка «Ник: (Твича)» →
-    жмёшь «Готово» → бот ставит ник. Новенького бот сам зовёт в канал.
+Вход на сервер (3 задания в онбординге):
+    третье задание «Ник с Твича» приводит в #📕│правила → кнопка «Указать ник»
+    → модалка → «Готово» → бот ставит ник и сразу выдаёт роль «👋 Участник».
+    Канала «получить-роль» больше нет, в личные сообщения бот не пишет.
 """
 from __future__ import annotations
 
@@ -22,7 +23,10 @@ from discord import app_commands
 import commands as textcmd
 import moderation as mod
 
-NICK_CHANNEL = "🔑│получить-роль"
+NICK_CHANNEL = "📕│правила"
+MEMBER_ROLE = "👋 Участник"
+LOG_CHANNEL = "📋│логи"
+WELCOME_CHANNEL = "💬│флудилка"
 PANEL_MARK = "УКАЗАТЬ НИК TWITCH"
 
 
@@ -37,17 +41,46 @@ class NickModal(discord.ui.Modal, title="Твой ник с Твича"):
             min_length=2, max_length=32, required=True)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # сначала подтверждаем интеракцию — у Discord на это 3 секунды
+        await interaction.response.defer(ephemeral=True)
+        guild = interaction.guild
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            member = guild.get_member(member.id) or await guild.fetch_member(member.id)
         value = str(self.nick.value).strip()
+
         try:
-            await interaction.user.edit(nick=value)
+            await member.edit(nick=value, reason="ник с Твича из онбординга")
         except discord.Forbidden:
-            await interaction.response.send_message(
+            return await interaction.followup.send(
                 "⛔ Не могу сменить ник: владелец сервера или роль выше моей.", ephemeral=True)
-            return
         except discord.HTTPException as e:
-            await interaction.response.send_message(f"❌ Discord не дал сменить ник: {e}", ephemeral=True)
-            return
-        await interaction.response.send_message(f"✅ Готово, теперь ты **{value}**", ephemeral=True)
+            return await interaction.followup.send(
+                f"❌ Discord не дал сменить ник: {e}", ephemeral=True)
+
+        role = discord.utils.get(guild.roles, name=MEMBER_ROLE)
+        if role is not None and role not in member.roles:
+            try:
+                await member.add_roles(role, reason="ник с Твича указан — онбординг пройден")
+            except discord.HTTPException as e:
+                print("[nick] не выдал роль:", repr(e))
+
+        logs = discord.utils.get(guild.text_channels, name=LOG_CHANNEL)
+        if logs:
+            try:
+                await logs.send(f"🎮 {member.mention} указал ник **{value}** → выдана роль «{MEMBER_ROLE}»")
+            except discord.HTTPException:
+                pass
+        welcome = discord.utils.get(guild.text_channels, name=WELCOME_CHANNEL)
+        if welcome:
+            try:
+                await welcome.send(f"👋 Добро пожаловать, **{value}**!")
+            except discord.HTTPException:
+                pass
+
+        await interaction.followup.send(
+            f"✅ Готово! Ты **{value}**, роль «{MEMBER_ROLE}» выдана — сервер открыт.",
+            ephemeral=True)
 
 
 class NickButton(discord.ui.View):
@@ -63,10 +96,10 @@ class NickButton(discord.ui.View):
 def nick_panel_embed() -> discord.Embed:
     e = discord.Embed(
         title="Ник: (Твича)",
-        description=("Нажми **Указать ник** и впиши свой ник с Twitch — бот сразу поставит его "
-                     "тебе на сервере.\n\n"
-                     "Пример: `smoak52` → ник на сервере станет **smoak52**.\n"
-                     "Поменять можно в любой момент."),
+        description=("**Задание 3.** Нажми **Указать ник**, впиши свой ник с Twitch и нажми **Готово**.\n\n"
+                     "Бот сразу поставит этот ник на сервере и выдаст роль **👋 Участник** — "
+                     "откроются все каналы.\n\n"
+                     "Пример: `smoak52` → ник на сервере **smoak52**. Поменять можно в любой момент."),
         color=0x9146FF)
     e.set_footer(text=PANEL_MARK)
     return e
@@ -81,21 +114,25 @@ async def ensure_nick_panel(guild: discord.Guild) -> None:
             if m.author.id == guild.me.id and m.embeds and \
                     (m.embeds[0].footer and m.embeds[0].footer.text == PANEL_MARK):
                 return
-        await ch.send(embed=nick_panel_embed(), view=NickButton())
-        print("[nick] панель ника готова")
+        msg = await ch.send(embed=nick_panel_embed(), view=NickButton())
+        try:
+            await msg.pin(reason="задание 3: ник с Твича")
+        except discord.HTTPException:
+            pass
+        print("[nick] панель ника готова в #", NICK_CHANNEL)
     except discord.HTTPException as e:
         print("[nick] панель:", repr(e))
 
 
 async def prompt_newcomer(member: discord.Member) -> None:
-    """Зовём новичка указать ник — в канал, без личных сообщений."""
+    """Зовём новичка к заданию 3 — в канал, без личных сообщений."""
     ch = discord.utils.get(member.guild.text_channels, name=NICK_CHANNEL)
     if ch is None:
         return
     try:
         await ch.send(
-            f"{member.mention} добро пожаловать! Поставь ник с Твича: нажми кнопку ниже → "
-            f"**Ник: (Твича)** → **Готово**.",
+            f"{member.mention} добро пожаловать! **Задание 3:** нажми **Указать ник** ниже → "
+            f"впиши ник с Твича → **Готово**. Бот поставит ник и откроет сервер.",
             view=NickButton(), delete_after=900)
     except discord.HTTPException:
         pass

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Автовыдача роли «👋 Участник» новичкам.
+Лог входа новичков. Роль «👋 Участник» НЕ выдаётся здесь.
 
 Логика:
   • зашёл на сервер и правила уже приняты  → роль выдаётся сразу;
@@ -67,14 +67,13 @@ async def handle_member_join(member: discord.Member) -> None:
     if member.bot:
         return
     await _log(member.guild, f"📥 {member.mention} зашёл на сервер")
-    if not member.pending:
-        await grant(member, "вошёл на сервер")
+    # роль выдаёт только NickModal после того, как человек указал ник с Твича
+    return
 
 
 async def handle_member_update(before: discord.Member, after: discord.Member) -> None:
-    # момент, когда человек принял правила на экране верификации
-    if before.pending and not after.pending:
-        await grant(after, "принял правила")
+    # онбординг пройден, но роль появится только после ввода ника
+    return
 
 
 if __name__ == "__main__":

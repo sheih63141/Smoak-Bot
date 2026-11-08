@@ -1,182 +1,148 @@
 #!/usr/bin/env python3
 """
-Настройка входа на сервер: экран правил (галочки) + онбординг с выбором роли.
+Онбординг SmoakTeam: 3 задания при входе.
 
-Что делает:
-  1. Включает режим «Сообщество» (Community) — без него нет экрана правил.
-     #правила становится каналом правил, #игровые-новости — каналом обновлений.
-  2. Включает экран проверки: новичок видит правила и ставит галочки
-     («ознакомлен», «13+»), без этого каналы сервера недоступны.
-  3. Настраивает онбординг: обязательный выбор «👋 Я участник — с правилами ознакомлен»
-     (выдаёт роль 👋 Участник) + необязательный выбор интересов (какие каналы открыть).
-  4. Проверяет, что всё включилось, и печатает итог.
+1) «Кто ты?»            — подтверждение правил (роль НЕ выдаёт);
+2) «Что тебе интересно?» — открывает тематические каналы;
+3) «Ник с Твича»         — приводит в #📕│правила к кнопке «Указать ник».
 
-Запуск:  DISCORD_TOKEN=... GUILD_ID=... python onboarding_setup.py
-Повторный запуск безопасен — настройки перезаписываются теми же значениями.
+Discord не умеет принимать свободный текст в вопросах онбординга (только выбор
+вариантов), поэтому сам ник вводится в модалке бота: «Указать ник» → «Готово»
+→ бот ставит ник и выдаёт роль «👋 Участник».
+
+Идемпотентно: повторный запуск переиспользует ID существующих вопросов/вариантов.
+    DISCORD_TOKEN=... GUILD_ID=... python3 onboarding_setup.py
 """
 from __future__ import annotations
 
+import json
 import os
-import sys
+import time
+import urllib.error
+import urllib.request
 
-import discord
-from discord.http import Route
-from discord.onboarding import (
-    OnboardingMode,
-    OnboardingPrompt,
-    OnboardingPromptOption,
-    OnboardingPromptType,
-)
-
+GUILD_ID = os.getenv("GUILD_ID", "1568607492991353053")
 TOKEN = os.getenv("DISCORD_TOKEN", "")
-GUILD_ID = int(os.getenv("GUILD_ID", "0") or 0)
 
-RULES_CHANNEL = "правила"
-UPDATES_CHANNEL = "игровые-новости"
-MEMBER_ROLE = "👋 Участник"
-DEFAULT_CHANNELS = ["правила", "общий-чат", "поиск-игроков"]
-
-VERIFY_DESCRIPTION = "Чтобы попасть на сервер, подтверди, что ознакомился с правилами."
-VERIFY_FIELDS = [
-    {
-        "field_type": "TERMS",
-        "label": "Я прочитал(а) правила и согласен(на) с ними",
-        "required": True,
-        "values": ["https://discord.com/guidelines"],
-    },
-    {
-        "field_type": "TERMS",
-        "label": "Мне 13 лет или больше (требование Discord)",
-        "required": True,
-        "values": ["https://discord.com/terms"],
-    },
-]
-
-INTERESTS = [
-    ("🎮 Игры и сборы", "Поиск тиммейтов и игровые новости", ["поиск-игроков", "игровые-новости"]),
-    ("🎥 Стримы", "Анонсы эфиров и обсуждение", ["анонсы-стримов", "стрим-обсуждение"]),
-    ("💬 Общение и мемы", "Общий чат, мемы, клипы", ["общий-чат", "мемы-и-арты"]),
-]
-
-client = discord.Client(intents=discord.Intents.default())
+RULES = "1568626357791887501"          # 📕│правила
+CH_STREAMS = "1568626387017797803"     # 📺│стримы
+CH_CHAT = "1568626371335557238"        # 💬│флудилка
+CH_MEMES = "1568626373591826443"       # 🖼│мемы-и-клипы
+CH_PARTY1 = "1568626398300602511"      # 🔫 Пати - 1
+CH_PARTY2 = "1568626399793651904"      # 🔫 Пати - 2
 
 
-@client.event
-async def on_ready() -> None:
-    g = client.get_guild(GUILD_ID)
-    if not g:
-        print("❌ сервер не найден")
-        await client.close()
-        return
+def emoji(name: str) -> dict:
+    return {"id": None, "name": name, "animated": False}
 
-    def text_ch(name: str) -> discord.TextChannel | None:
-        return discord.utils.get(g.text_channels, name=name)
 
-    # ---------------------------------------------------------- 1. Community
-    print("--- режим сообщества ---")
+_seq = 0
+
+
+def snowflake() -> str:
+    """Уникальный ID для нового вопроса/варианта (Discord требует id даже у новых)."""
+    global _seq
+    _seq += 1
+    return str(((int(time.time() * 1000) - 1420070400000) << 22) | (_seq & 0x3FFFFF))
+
+
+def api(method: str, path: str, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request("https://discord.com/api/v10" + path,
+                                 data=body, method=method)
+    req.add_header("Authorization", f"Bot {TOKEN}")
+    req.add_header("User-Agent", "DiscordBot (smoak,1.0)")
+    if body:
+        req.add_header("Content-Type", "application/json")
     try:
-        await g.edit(
-            community=True,
-            rules_channel=text_ch(RULES_CHANNEL),
-            public_updates_channel=text_ch(UPDATES_CHANNEL),
-            verification_level=discord.VerificationLevel.medium,
-            explicit_content_filter=discord.ContentFilter.all_members,
-            reason="включение экрана правил",
-        )
-        print(f"  ✅ Community | правила → #{RULES_CHANNEL} | обновления → #{UPDATES_CHANNEL}")
-    except discord.HTTPException as e:
-        print(f"  ⚠️ Community: {e.status} {e.code} {str(e.text)[:150]}")
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            raw = resp.read()
+            return resp.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
 
-    # ------------------------------------------------- 2. Экран проверки правил
-    print("\n--- экран правил (галочки при входе) ---")
-    try:
-        payload = {"enabled": True, "description": VERIFY_DESCRIPTION, "form_fields": VERIFY_FIELDS}
-        r = await client.http.request(
-            Route("PATCH", "/guilds/{guild_id}/member-verification", guild_id=g.id), json=payload
-        )
-        for f in r.get("form_fields", []):
-            print(f"  [ ] {f['label']}")
-        print("  ✅ сохранено")
-    except discord.HTTPException as e:
-        print(f"  ⚠️ экран правил: {e.status} {e.code} {str(e.text)[:150]}")
 
-    # -------------------------------------------------------------- 3. Онбординг
-    print("\n--- онбординг при входе ---")
-    member_role = discord.utils.get(g.roles, name=MEMBER_ROLE)
-    if member_role is None:
-        print(f"  ⚠️ нет роли «{MEMBER_ROLE}» — онбординг без выдачи роли")
-        first_prompt = None
-    else:
-        first_prompt = OnboardingPrompt(
-            type=OnboardingPromptType.multiple_choice,
-            title="Подтверди участие",
-            single_select=True,
-            required=True,
-            in_onboarding=True,
-            options=[
-                OnboardingPromptOption(
-                    title="👋 Я участник — с правилами ознакомлен",
-                    description="Выдаст роль «Участник» и откроет каналы",
-                    roles=[member_role],
-                )
-            ],
-        )
+def opt(title: str, description: str, channels=(), emoji_name="✅", old=None) -> dict:
+    o = {
+        "title": title,
+        "description": description,
+        "emoji": emoji(emoji_name),
+        "channel_ids": list(channels),
+        "role_ids": [],          # роль выдаёт бот после ввода ника
+    }
+    o["id"] = old["id"] if old else snowflake()
+    return o
 
-    options = []
-    for title, desc, channels in INTERESTS:
-        chs = [text_ch(c) for c in channels]
-        chs = [c for c in chs if c]
-        if chs:
-            options.append(OnboardingPromptOption(title=title, description=desc, channels=chs))
-    interests_prompt = OnboardingPrompt(
-        type=OnboardingPromptType.multiple_choice,
-        title="Что тебе интересно?",
-        single_select=False,
-        required=False,
-        in_onboarding=True,
-        options=options or [
-            OnboardingPromptOption(title="💬 Общение", channels=[text_ch("общий-чат")])
-        ],
-    )
 
-    prompts = ([first_prompt] if first_prompt else []) + [interests_prompt]
-    defaults = [text_ch(n) for n in DEFAULT_CHANNELS]
-    defaults = [c for c in defaults if c]
-    try:
-        ob = await g.edit_onboarding(
-            prompts=prompts,
-            default_channels=defaults,
-            enabled=True,
-            mode=OnboardingMode.advanced,
-            reason="онбординг новичков",
-        )
-        print(f"  ✅ включён | режим: {ob.mode} | каналы по умолчанию: "
-              f"{', '.join('#' + c.name for c in ob.default_channels)}")
-        for p in ob.prompts:
-            mark = "обязательный" if p.required else "по желанию"
-            print(f"   • {p.title} ({mark})")
-            for o in p.options:
-                extra = []
-                if o.roles:
-                    extra.append("роли: " + ", ".join(r.name for r in o.roles))
-                if o.channels:
-                    extra.append("каналы: " + ", ".join("#" + c.name for c in o.channels))
-                print(f"       - {o.title} [{'; '.join(extra) or '—'}]")
-    except discord.HTTPException as e:
-        print(f"  ⚠️ онбординг: {e.status} {e.code} {str(e.text)[:200]}")
+def prompt(title: str, options, *, single: bool, required: bool, old=None) -> dict:
+    p = {
+        "title": title,
+        "options": options,
+        "single_select": single,
+        "required": required,
+        "in_onboarding": True,
+        "type": 0,
+    }
+    p["id"] = old["id"] if old else snowflake()
+    return p
 
-    # ------------------------------------------------------------ 4. Проверка
-    print("\n--- проверка ---")
-    features = await client.http.request(Route("GET", "/guilds/{guild_id}", guild_id=g.id))
-    feats = features.get("features", [])
-    print("  экран правил:", "ВКЛ" if "MEMBER_VERIFICATION_GATE_ENABLED" in feats else "ВЫКЛ")
-    print("  онбординг:   ", "ВКЛ" if "GUILD_ONBOARDING" in feats else "ВЫКЛ")
-    print("  роль для новичков выдаёт бот (join_gate.py) — нужен Server Members Intent")
-    await client.close()
+
+def main() -> None:
+    status, current = api("GET", f"/guilds/{GUILD_ID}/onboarding")
+    if status != 200:
+        raise SystemExit(f"не прочитал онбординг: {status} {current}")
+    old_prompts = {p["title"]: p for p in current.get("prompts", [])}
+
+    def old(t: str):
+        return old_prompts.get(t)
+
+    def old_option(p: dict | None, title: str):
+        if not p:
+            return None
+        return next((o for o in p.get("options", []) if o["title"] == title), None)
+
+    p1 = old("Кто ты?")
+    p2 = old("Что тебе интересно?")
+    p3 = old("Ник с Твича")
+
+    prompts = [
+        prompt("Кто ты?", [
+            opt("👋 Я участник — с правилами ознакомлен",
+                "Принимаю правила. Дальше — задание с ником Твича",
+                [RULES], "👋", old=old_option(p1, "👋 Я участник — с правилами ознакомлен")),
+        ], single=True, required=True, old=p1),
+        prompt("Что тебе интересно?", [
+            opt("🔫 CS2 и пати", "Пати-каналы Counter-Strike",
+                [CH_PARTY1, CH_PARTY2], "🔫", old_option(p2, "🔫 CS2 и пати")),
+            opt("📺 Стримы", "Анонсы эфиров", [CH_STREAMS], "📺",
+                old_option(p2, "📺 Стримы")),
+            opt("💬 Общение и мемы", "Флудилка, мемы и клипы",
+                [CH_CHAT, CH_MEMES], "💬", old_option(p2, "💬 Общение и мемы")),
+        ], single=False, required=False, old=p2),
+        prompt("Ник с Твича", [
+            opt("🎮 Указать ник",
+                "Зайди в #правила, нажми кнопку, впиши ник и Готово — бот выдаст роль Участник",
+                [RULES], "🎮", old_option(p3, "🎮 Указать ник")),
+        ], single=True, required=True, old=p3),
+    ]
+
+    payload = {
+        "prompts": prompts,
+        "default_channel_ids": [RULES],
+        "enabled": True,
+        "mode": 1,
+    }
+    status, res = api("PUT", f"/guilds/{GUILD_ID}/onboarding", payload)
+    print("PUT /onboarding:", status)
+    if status != 200:
+        print(json.dumps(res, ensure_ascii=False, indent=2)[:1500])
+        raise SystemExit(1)
+    for i, p in enumerate(res.get("prompts", []), 1):
+        print(f"  задание {i}: {p['title']} "
+              f"({'обязательное' if p['required'] else 'по желанию'}) — "
+              f"{len(p['options'])} вариант(ов)")
+    print("  каналов по умолчанию:", [c for c in res.get("default_channel_ids", [])])
 
 
 if __name__ == "__main__":
-    if not TOKEN or not GUILD_ID:
-        print("❌ Нужны DISCORD_TOKEN и GUILD_ID")
-        sys.exit(1)
-    client.run(TOKEN)
+    main()
