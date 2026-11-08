@@ -120,28 +120,13 @@ ROLES: list[dict] = [
             "manage_messages": True,
             "moderate_members": True,
             "kick_members": True,
-            "ban_members": False,  # баны — только у администрации
+            "ban_members": True,   # наказания теперь у модераторов
             "move_members": True,
             "deafen_members": True,
             "mute_members": True,
             "manage_threads": True,
             "create_private_threads": True,
             "manage_nicknames": True,
-            "view_channel": True,
-            "send_messages": True,
-        },
-    },
-    {
-        "key": "helper",
-        "name": "🧰 Хелпер",
-        "color": 0x3498DB,
-        "hoist": True,
-        "mentionable": True,
-        "perms": {
-            "manage_messages": True,
-            "moderate_members": True,
-            "move_members": True,
-            "create_private_threads": True,
             "view_channel": True,
             "send_messages": True,
         },
@@ -309,7 +294,7 @@ CATEGORIES: list[dict] = [
             {
                 "type": "text",
                 "name": "🎫-подать-тикет",
-                "topic": "Поставь реакцию: 🎫 вопрос хелперу · 📋 обращение к админам · 📝 заявка в команду.",
+                "topic": "Поставь реакцию: 🎫 вопрос модератору · 📋 обращение к админам · 📝 заявка в команду.",
                 "overwrites": {
                     "everyone": {"deny": {"send_messages": True, "create_private_threads": True,
                                           "create_public_threads": True},
@@ -317,8 +302,6 @@ CATEGORIES: list[dict] = [
                                            "add_reactions": True}},
                     "member": {"allow": {"view_channel": True, "read_message_history": True,
                                          "add_reactions": True}},
-                    "helper": {"allow": {"send_messages": True, "read_message_history": True,
-                                         "manage_messages": True}},
                     "mod": {"allow": {"send_messages": True, "read_message_history": True,
                                       "manage_messages": True}},
                     "admin": {"allow": {"send_messages": True, "read_message_history": True,
@@ -331,7 +314,6 @@ CATEGORIES: list[dict] = [
         "name": "🎫 ТИКЕТЫ",
         "overwrites": {
             "everyone": {"deny": {"view_channel": True}},
-            "helper": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
             "mod": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
             "admin": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
         },
@@ -341,7 +323,6 @@ CATEGORIES: list[dict] = [
         "name": "📋 ОБРАЩЕНИЯ",
         "overwrites": {
             "everyone": {"deny": {"view_channel": True}},
-            "helper": {"deny": {"view_channel": True}},
             "mod": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
             "admin": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
         },
@@ -351,7 +332,6 @@ CATEGORIES: list[dict] = [
         "name": "📝 ЗАЯВКИ",
         "overwrites": {
             "everyone": {"deny": {"view_channel": True}},
-            "helper": {"deny": {"view_channel": True}},
             "mod": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
             "admin": {"allow": {"view_channel": True, "send_messages": True, "read_message_history": True}},
         },
@@ -363,7 +343,7 @@ CATEGORIES: list[dict] = [
         "channels": [
             {"type": "text", "name": "мод-чат", "topic": "Внутренние обсуждения команды.", "staff": ["mod", "admin"]},
             {"type": "text", "name": "логи", "topic": "Автоматические логи бана/кика/удалённых сообщений (сюда пишет Carl-bot).", "staff": ["mod", "admin"]},
-            {"type": "text", "name": "заявки", "topic": "Заявки в модераторы / хелперы / стримеры.", "staff": ["helper", "mod", "admin"]},
+            {"type": "text", "name": "заявки", "topic": "Заявки в модераторы / стримеры.", "staff": ["mod", "admin"]},
         ],
     },
     {
@@ -374,7 +354,6 @@ CATEGORIES: list[dict] = [
             "owner": {"allow": {"view_channel": True, "connect": True, "speak": True}},
             "admin": {"allow": {"view_channel": True, "connect": True, "speak": True}},
             "mod": {"allow": {"view_channel": True, "connect": True, "speak": True}},
-            "helper": {"allow": {"view_channel": True}},
             "streamer": {"allow": {"view_channel": True, "connect": True, "speak": True, "stream": True}},
             "vip": {"allow": {"view_channel": True}},
         },
@@ -398,7 +377,6 @@ CATEGORIES: list[dict] = [
                 "overwrites": {
                     "everyone": {"deny": {"view_channel": True}},
                     "mod": {"allow": {"view_channel": True, "connect": True, "speak": True}},
-                    "helper": {"allow": {"view_channel": True, "connect": True, "speak": True}},
                     "admin": {"allow": {"view_channel": True, "connect": True, "speak": True}},
                     "streamer": {"allow": {"view_channel": True, "connect": True, "speak": True}},
                 },
@@ -410,7 +388,6 @@ CATEGORIES: list[dict] = [
                 "overwrites": {
                     "everyone": {"deny": {"view_channel": True}},
                     "mod": {"allow": {"view_channel": True, "connect": True, "speak": True}},
-                    "helper": {"allow": {"view_channel": True, "connect": True, "speak": True}},
                     "admin": {"allow": {"view_channel": True, "connect": True, "speak": True}},
                     "streamer": {"allow": {"view_channel": True, "connect": True, "speak": True}},
                 },
@@ -434,7 +411,6 @@ CATEGORIES: list[dict] = [
                     "everyone": {"deny": {"view_channel": True}},
                     "vip": {"allow": {"view_channel": True, "send_messages": True}},
                     "streamer": {"allow": {"view_channel": True, "send_messages": True}},
-                    "helper": {"allow": {"view_channel": True, "send_messages": True}},
                     "mod": {"allow": {"view_channel": True, "send_messages": True}},
                     "admin": {"allow": {"view_channel": True, "send_messages": True}},
                 },
@@ -606,13 +582,6 @@ class Builder:
                     except discord.HTTPException as e:
                         print(f"  ⚠️ права категории {cat_spec['name']}: {e}")
 
-            if not DRY_RUN and cat_spec.get("staff_only"):
-                helper = self.roles.get("helper")
-                if helper:
-                    await cat.set_permissions(
-                        helper, overwrite=discord.PermissionOverwrite(view_channel=False)
-                    )
-
             for ch_spec in cat_spec["channels"]:
                 await self.setup_channel(cat, ch_spec)
 
@@ -688,7 +657,7 @@ def texts_nav() -> str:
         "🎮 **#поиск-игроков** — собрать пати: *игра / сколько нужно / какой войс*\n"
         "🎥 **#анонсы-стримов** — кто и что стримит\n"
         "☎ **🔊 ГОЛОС** — заходи в «Общий» или «Пати 1–2»\n"
-        "🎟 **#🎫-подать-тикет** — поставь реакцию: 🎫 вопрос хелперу, "
+        "🎟 **#🎫-подать-тикет** — поставь реакцию: 🎫 вопрос модератору, "
         "📋 обращение к админам, 📝 заявка в команду\n\n"
         "**Как включить уведомления:** зайди в #выбери-роли и поставь реакции — пинги только по теме.\n"
         "**Хочешь стримить у нас?** Открой тикет: выдадим роль 🎥 Стример и доступ к анонсам.\n"
@@ -717,7 +686,7 @@ def texts_ticket() -> str:
     return (
         "**🎫 ПОДДЕРЖКА**\n"
         "Нажми **Создать тикет** ниже. Откроется приватный канал, где ответит команда сервера.\n\n"
-        "Для чего тикет: жалоба на участника, разбан/апелляция, заявка в модераторы или хелперы, "
+        "Для чего тикет: жалоба на участника, разбан/апелляция, заявка в модераторы, "
         "заявка на стрим, идея ивента, любой приватный вопрос.\n\n"
         "Полезно сразу приложить: ники, ссылки на сообщения, время, скриншоты."
     )
