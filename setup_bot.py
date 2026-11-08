@@ -158,7 +158,7 @@ ROLES: list[dict] = [
     },
     {
         "key": "bot",
-        "name": "🤖 Бот",
+        "name": "🤖 Боты",
         "color": 0x95A5A6,
         "hoist": True,
         "mentionable": False,
@@ -166,7 +166,7 @@ ROLES: list[dict] = [
     },
     {
         "key": "active",
-        "name": "⭐ Активный",
+        "name": "🔥 Активный",
         "color": 0x2ECC71,
         "hoist": False,
         "mentionable": True,
@@ -174,7 +174,7 @@ ROLES: list[dict] = [
     },
     {
         "key": "vip",
-        "name": "💎 ВИП",
+        "name": "💎 V.I.P",
         "color": 0xF4D03F,
         "hoist": True,
         "mentionable": True,
