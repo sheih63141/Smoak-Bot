@@ -93,15 +93,15 @@ async def ensure_mute_setup(guild: discord.Guild) -> tuple:
     """Создаёт/чинит роль 🔇 Мут и комнату «В муте». Возвращает (роль, комната)."""
     role = mute_role(guild)
     if role is None:
-        role = await guild.create_role(name=MUTE_ROLE_NAME, colour=discord.Colour(0x546E7A),
+        role = await guild.create_role(name=MUTE_ROLE_NAME, colour=discord.Colour(0x2B2D31),
                                        permissions=discord.Permissions.none(),
                                        reason="роль для мута")
         print("[mute] роль создана:", role.name)
     else:
         # роль должна стоять ниже модераторов и ничего не разрешать
         try:
-            await role.edit(permissions=discord.Permissions.none(),
-                            colour=discord.Colour(0x546E7A), mentionable=False)
+            # цвет НЕ трогаем: его задают вручную в настройках сервера
+            await role.edit(permissions=discord.Permissions.none(), mentionable=False)
         except discord.HTTPException:
             pass
 
