@@ -163,6 +163,14 @@ async def create_ticket(guild: discord.Guild, member: discord.Member, emoji: str
         pass
 
     await _log(guild, f"{emoji} Открыт тикет {channel.mention} ({route['kind']}) от {member.mention}")
+    try:
+        await member.send(
+            f"Твой тикет открыт: **{channel.name}**\n"
+            f"Категория **{route['category']}** в сервере **{guild.name}**.\n"
+            f"Пиши там — ответит команда. Закрыть свой тикет можно реакцией 🔒 внутри него."
+        )
+    except discord.HTTPException:
+        pass  # личка закрыта — не страшно
     return channel
 
 
@@ -232,6 +240,12 @@ async def handle_raw_reaction_add(client: discord.Client, payload) -> bool:
         created = await create_ticket(guild, member, emoji)
         if created:
             print(f"[ticket] {emoji} → {created.name} ({member})")
+        # снимаем реакцию, иначе повторный клик её просто снимает и тикет не создаётся
+        try:
+            msg = panel.get_partial_message(payload.message_id)
+            await msg.remove_reaction(payload.emoji, member)
+        except discord.HTTPException:
+            pass
         return True
 
     # --- 🔒 внутри тикета: закрыть ---
