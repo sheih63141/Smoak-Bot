@@ -131,7 +131,7 @@ async def apply_channel_rules(guild: discord.Guild) -> int:
 
     def is_allowed(ch, parent_name: str) -> bool:
         return (ch.id == AFK_CHANNEL_ID or ch.name == TALK_ROOM_NAME
-                or parent_name in ("💤 AFK", MUTE_CATEGORY_NAME))
+                or parent_name in ("💤 AFK", "😴 AFK", MUTE_CATEGORY_NAME))
 
     parents = {c.id: c.name for c in guild.categories}
     for ch in guild.channels:

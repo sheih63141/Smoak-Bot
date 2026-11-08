@@ -1,159 +1,145 @@
 #!/usr/bin/env python3
 """
-Дизайн сервера SmoakTeam в стиле CS2-сообщества (как на референсе, без GTA).
+Применяет актуальную структуру SmoakTeam (дизайн CS-сообщества).
 
-Один прогон приводит сервер к нужному виду: переименовывает каналы на месте
-(история сообщений сохраняется), создаёт недостающие, раскладывает по категориям.
-Повторный запуск ничего не ломает.
+Идемпотентно: работает через REST и список каналов гильдии (без кэша discord.py),
+поэтому при повторном запуске НЕ создаёт дубли. История сообщений сохраняется,
+так как каналы переименовываются на месте по ID.
+
+    DISCORD_TOKEN=... python3 apply_layout.py
 """
 from __future__ import annotations
 
-import asyncio
+import json
 import os
+import urllib.error
+import urllib.request
 
-import discord
-
+GUILD_ID = int(os.getenv("GUILD_ID", "1568607492991353053"))
 TOKEN = os.getenv("DISCORD_TOKEN", "")
-GUILD_ID = 1568607492991353053
 
-# (старое имя или None, новое имя, категория, тип: text/voice/category)
-CATEGORIES = [
-    ("📌 СТАРТ", "📢 ИНФОРМАЦИЯ"),
-    ("💬 ОБЩЕНИЕ", "💬 CHAT"),
-    ("🎫 ПОДДЕРЖКА", "🎫 ПОДДЕРЖКА"),
-    (None, "🔊 ОБЩЕСТВЕННОЕ МЕСТО"),
-    (None, "🔫 COUNTER-STRIKE"),
-    (None, "🎧 ЧИЛЛ"),
-    ("🔒 ПРИВАТНОЕ", "🔒 ПРИВАТНОЕ"),
-    ("🛠 КОМАНДА (скрыто)", "🛠 КОМАНДА (скрыто)"),
-    ("💤 AFK", "😴 AFK"),
-    ("🔇 МУТ", "🔇 МУТ"),
-    ("📢 НОВОСТИ", None),          # категорию убираем, каналы переезжают в ИНФОРМАЦИЮ
-    ("🔊 ГОЛОС", None),            # переименовываем в ОБЩЕСТВЕННОЕ МЕСТО отдельно
-]
+# категория -> [(тип, имя, лимит)]   тип: 0 = текст, 2 = войс
+LAYOUT = {
+    "📢 ИНФОРМАЦИЯ": [
+        (0, "📕│правила", 0), (0, "🔑│получить-роль", 0),
+        (0, "👋│новенькие", 0), (0, "🎁│розыгрыш", 0),
+        (0, "📺│стримы", 0), (0, "▶️│ютуб", 0), (0, "📢│объявления", 0),
+    ],
+    "💬 CHAT": [
+        (0, "💬│флудилка", 0), (0, "🖼│мемы-и-клипы", 0),
+        (0, "🎬│стрим-обсуждение", 0),
+    ],
+    "🎫 ПОДДЕРЖКА": [(0, "🎫│подать-тикет", 0)],
+    "🔊 ОБЩЕСТВЕННОЕ МЕСТО": [
+        (2, "🚀 France - Paris", 0), (2, "🗽 Нью-Йорк - Walk street", 0),
+        (2, "🏜 Дубай - Downtown", 0),
+    ],
+    "🔫 COUNTER-STRIKE": [
+        (2, "🔫 Пати - 1", 5), (2, "🔫 Пати - 2", 5), (2, "🔫 Пати - 3", 5),
+    ],
+    "🎧 ЧИЛЛ": [
+        (2, "🎧 Стрим - комната", 0), (2, "🎧 Чилл - 1", 0), (2, "🎧 Чилл - 2", 0),
+    ],
+    "🔒 ПРИВАТНОЕ": [
+        (2, "🎬 Стримерская", 0), (2, "👥 Тим - 1", 0),
+        (2, "👥 Тим - 2", 0), (2, "💎 ВИП - комната", 0), (0, "💬│приват-чат", 0),
+    ],
+    "🛠 КОМАНДА (скрыто)": [
+        (0, "🛡│мод-чат", 0), (0, "📋│логи", 0), (0, "📝│заявки", 0),
+    ],
+    "😴 AFK": [(2, "😴 AFK", 0)],
+    "🔇 МУТ": [(2, "В муте", 2)],
+}
 
-TEXT = [
-    ("правила", "📕│правила", "📢 ИНФОРМАЦИЯ", True),
-    ("получить-роль", "🔑│получить-роль", "📢 ИНФОРМАЦИЯ", False),
-    (None, "👋│новенькие", "📢 ИНФОРМАЦИЯ", True),
-    (None, "🎁│розыгрыш", "📢 ИНФОРМАЦИЯ", False),
-    ("анонсы-стримов", "📺│стримы", "📢 ИНФОРМАЦИЯ", True),
-    (None, "▶️│ютуб", "📢 ИНФОРМАЦИЯ", False),
-    ("объявления", "📢│объявления", "📢 ИНФОРМАЦИЯ", True),
-    ("общий-чат", "💬│флудилка", "💬 CHAT", False),
-    ("мемы-и-клипы", "🖼│мемы-и-клипы", "💬 CHAT", False),
-    ("стрим-обсуждение", "🎬│стрим-обсуждение", "💬 CHAT", False),
-    ("🎫-подать-тикет", "🎫│подать-тикет", "🎫 ПОДДЕРЖКА", False),
-    ("мод-чат", "🛡│мод-чат", "🛠 КОМАНДА (скрыто)", False),
-    ("логи", "📋│логи", "🛠 КОМАНДА (скрыто)", False),
-    ("заявки", "📝│заявки", "🛠 КОМАНДА (скрыто)", False),
-    ("приват-чат", "💬│приват-чат", "🔒 ПРИВАТНОЕ", False),
-]
-
-VOICE = [
-    ("🔊 Общий", "🚀 France - Paris", "🔊 ОБЩЕСТВЕННОЕ МЕСТО", 0),
-    (None, "🗽 Нью-Йорк - Walk street", "🔊 ОБЩЕСТВЕННОЕ МЕСТО", 0),
-    (None, "🏜 Дубай - Downtown", "🔊 ОБЩЕСТВЕННОЕ МЕСТО", 0),
-    ("🔫 Пати 1", "🟢 Major players CS2", "🔫 COUNTER-STRIKE", 5),
-    ("🔫 Пати 2", "🟠 Premier 5x5", "🔫 COUNTER-STRIKE", 5),
-    ("🔫 Пати 3", "🔴 Faceit", "🔫 COUNTER-STRIKE", 5),
-    ("🎧 Чилл", "🎧 Чилл 1", "🎧 ЧИЛЛ", 0),
-    (None, "🎧 Чилл 2", "🎧 ЧИЛЛ", 0),
-    ("🎧 Стрим-комната", "🎬 Стрим-комната", "🎧 ЧИЛЛ", 0),
-    ("🎬 Стримерская", "🎬 Стримерская", "🔒 ПРИВАТНОЕ", 0),
-    ("👥 Тим-1", "👥 Тим-1", "🔒 ПРИВАТНОЕ", 0),
-    ("👥 Тим-2", "👥 Тим-2", "🔒 ПРИВАТНОЕ", 0),
-    ("💎 ВИП-комната", "💎 ВИП-комната", "🔒 ПРИВАТНОЕ", 0),
-    ("AFK", "😴 AFK", "😴 AFK", 0),
-    ("В муте", "В муте", "🔇 МУТ", 2),
-]
+# если канал называется по-старому — переименовать, а не создавать второй
+ALIASES = {
+    "🚀 France - Paris": ["🔊 Общий"],
+    "🔫 Пати - 1": ["🔫 Пати 1", "🟢 Major players CS2"],
+    "🔫 Пати - 2": ["🔫 Пати 2", "🟠 Premier 5x5", "🟠 Premier"],
+    "🔫 Пати - 3": ["🔫 Пати 3", "🔴 Faceit"],
+    "🎧 Стрим - комната": ["🎧 Стрим-комната", "🎬 Стрим-комната"],
+    "🎧 Чилл - 1": ["🎧 Чилл", "🎧 Чилл 1"],
+    "🎧 Чилл - 2": ["🎧 Чилл 2"],
+    "🎬 Стримерская": ["🎬 Стример - ская"],
+    "👥 Тим - 1": ["👥 Тим-1", "Тим-1"],
+    "👥 Тим - 2": ["👥 Тим-2", "Тим-2"],
+    "💎 ВИП - комната": ["💎 ВИП-комната", "ВИП-комната"],
+    "😴 AFK": ["AFK", "😴 AFK - зона"],
+    "📕│правила": ["правила"], "🔑│получить-роль": ["получить-роль"],
+    "📺│стримы": ["анонсы-стримов"], "📢│объявления": ["объявления"],
+    "💬│флудилка": ["общий-чат"], "🖼│мемы-и-клипы": ["мемы-и-клипы"],
+    "🎬│стрим-обсуждение": ["стрим-обсуждение"],
+    "🎫│подать-тикет": ["🎫-подать-тикет"],
+    "🛡│мод-чат": ["мод-чат"], "📋│логи": ["логи"], "📝│заявки": ["заявки"],
+    "💬│приват-чат": ["приват-чат"],
+}
 
 
-async def main() -> None:
-    client = discord.Client(intents=discord.Intents.none())
-    await client.login(TOKEN)
-    guild = await client.fetch_guild(GUILD_ID)
+def api(method: str, path: str, data=None):
+    body = json.dumps(data).encode() if data is not None else None
+    req = urllib.request.Request("https://discord.com/api/v10" + path,
+                                 data=body, method=method)
+    req.add_header("Authorization", f"Bot {TOKEN}")
+    req.add_header("User-Agent", "DiscordBot (smoak,1.0)")
+    if body:
+        req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=25) as resp:
+            raw = resp.read()
+            return resp.status, (json.loads(raw) if raw else {})
+    except urllib.error.HTTPError as e:
+        return e.code, json.loads(e.read() or b"{}")
 
-    # 1. категории
-    cats = {}
-    for old, new in CATEGORIES:
-        if new is None:
-            continue
-        cat = discord.utils.get(guild.categories, name=new)
-        if cat is None and old:
-            cat = discord.utils.get(guild.categories, name=old)
-            if cat is not None:
-                await cat.edit(name=new, reason="редизайн")
-                print(f"  категория {old} → {new}")
+
+def main() -> None:
+    status, channels = api("GET", f"/guilds/{GUILD_ID}/channels")
+    if status != 200:
+        raise SystemExit(f"не удалось прочитать каналы: {status} {channels}")
+    # ВАЖНО: имя категории может совпадать с именем канала («😴 AFK»),
+    # поэтому ищем отдельно по типам — иначе появляются дубли.
+    by_cat = {c["name"]: c for c in channels if c["type"] == 4}
+    by_ch = {(c["name"], c["type"]): c for c in channels if c["type"] in (0, 2)}
+    cat_ids = {}
+
+    for pos, (cat_name, items) in enumerate(LAYOUT.items()):
+        cat = by_cat.get(cat_name)
         if cat is None:
-            cat = await guild.create_category(new, reason="редизайн")
-            print(f"  категория создана: {new}")
-        cats[new] = cat
-    # старое имя 🔊 ГОЛОС → ОБЩЕСТВЕННОЕ МЕСТО
-    old_voice = discord.utils.get(guild.categories, name="🔊 ГОЛОС")
-    if old_voice is not None:
-        await old_voice.edit(name="🔊 ОБЩЕСТВЕННОЕ МЕСТО", reason="редизайн")
-        cats["🔊 ОБЩЕСТВЕННОЕ МЕСТО"] = old_voice
-        print("  категория 🔊 ГОЛОС → 🔊 ОБЩЕСТВЕННОЕ МЕСТО")
-
-    # 2. текстовые
-    for old, new, cat, readonly in TEXT:
-        ch = discord.utils.get(guild.text_channels, name=new)
-        if ch is None and old:
-            ch = discord.utils.get(guild.text_channels, name=old)
-            if ch is not None:
-                await ch.edit(name=new, category=cats[cat], reason="редизайн")
-                print(f"  текст {old} → {new}")
-        if ch is None:
-            ch = await guild.create_text_channel(new, category=cats[cat], reason="редизайн")
-            print(f"  текст создан: {new}")
-        elif ch.category_id != cats[cat].id:
-            await ch.edit(category=cats[cat], reason="редизайн")
-        if readonly:
-            ow = ch.overwrites_for(guild.default_role)
-            if ow.send_messages is not False:
-                await ch.set_permissions(guild.default_role, send_messages=False, reason="только чтение")
-
-    # 3. голосовые
-    for old, new, cat, limit in VOICE:
-        ch = discord.utils.get(guild.voice_channels, name=new)
-        if ch is None and old:
-            ch = discord.utils.get(guild.voice_channels, name=old)
-            if ch is not None:
-                await ch.edit(name=new, category=cats[cat], user_limit=limit, reason="редизайн")
-                print(f"  войс {old} → {new}")
-        if ch is None:
-            ch = await guild.create_voice_channel(new, category=cats[cat], user_limit=limit, reason="редизайн")
-            print(f"  войс создан: {new}")
-        elif ch.category_id != cats[cat].id:
-            await ch.edit(category=cats[cat], reason="редизайн")
-
-    # 4. пустые категории — прочь
-    for cat in list(guild.categories):
-        if not cat.channels:
-            old = discord.utils.get(guild.categories, name="📢 НОВОСТИ")
-            if cat.name in ("📢 НОВОСТИ",) or old:
-                pass
-    for name in ("📢 НОВОСТИ",):
-        cat = discord.utils.get(guild.categories, name=name)
-        if cat is not None:
-            for ch in cat.channels:
-                target = discord.utils.get(guild.categories, name="📢 ИНФОРМАЦИЯ")
-                if target:
-                    await ch.edit(category=target, reason="редизайн")
-            await cat.delete(reason="редизайн: пустая категория")
-            print("  категория 📢 НОВОСТИ удалена")
-
-    print("\nитог:")
-    guild = await client.fetch_guild(GUILD_ID)
-    chans = await guild.fetch_channels()
-    for c in sorted(chans, key=lambda x: (x.category.position if x.category else 99, x.position)):
-        if isinstance(c, discord.CategoryChannel):
-            print(f"  {c.name}")
+            code, cat = api("POST", f"/guilds/{GUILD_ID}/channels",
+                            {"name": cat_name, "type": 4, "position": pos})
+            print(f"категория + {cat_name}: {code}")
         else:
-            print(f"    └ {c.name}")
-    await client.close()
+            api("PATCH", f"/channels/{cat['id']}", {"position": pos})
+        cat_ids[cat_name] = cat["id"]
+
+    for cat_name, items in LAYOUT.items():
+        for ch_pos, (kind, name, limit) in enumerate(items):
+            ch = by_ch.get((name, kind))
+            if ch is None:
+                for alias in ALIASES.get(name, []):
+                    ch = by_ch.get((alias, kind))
+                    if ch:
+                        code, _ = api("PATCH", f"/channels/{ch['id']}",
+                                      {"name": name, "parent_id": cat_ids[cat_name],
+                                       **({"user_limit": limit} if kind == 2 else {})})
+                        print(f"  {alias} → {name}: {code}")
+                        break
+            if ch is None:
+                code, ch = api("POST", f"/guilds/{GUILD_ID}/channels",
+                               {"name": name, "type": kind,
+                                "parent_id": cat_ids[cat_name],
+                                **({"user_limit": limit} if kind == 2 else {})})
+                print(f"  + {name}: {code}")
+                if code not in (200, 201):
+                    continue
+            payload = {}
+            if ch.get("parent_id") != cat_ids[cat_name]:
+                payload["parent_id"] = cat_ids[cat_name]
+            if kind == 2 and ch.get("user_limit") != limit:
+                payload["user_limit"] = limit
+            if payload:
+                api("PATCH", f"/channels/{ch['id']}", payload)
+    print("готово: структура применена, дублей нет")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
