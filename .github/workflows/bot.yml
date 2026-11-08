@@ -1,0 +1,36 @@
+name: SmoakTeam bot
+
+on:
+  workflow_dispatch:          # кнопка «Run workflow»
+  push:
+    branches: [main]
+  schedule:
+    - cron: "*/30 * * * *"    # каждые 30 минут: если бот остановился — поднимется
+
+concurrency:
+  group: smoakteam-bot
+  cancel-in-progress: false   # второй запуск ждёт, а не убивает первый
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360      # максимум GitHub Actions — 6 часов
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Ставлю зависимости
+        run: pip install --no-cache-dir -r requirements.txt
+
+      - name: Запускаю бота
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GUILD_ID: "1568607492991353053"
+          MEMBERS_INTENT: "0"
+          IDLE_MINUTES: "15"
+        # 5 ч 56 мин — за 4 минуты до лимита GitHub бот корректно завершается,
+        # следующий запуск из расписания подхватывает эстафету
+        run: timeout 21400 python -u automod_bot.py || true
