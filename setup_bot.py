@@ -283,7 +283,6 @@ CATEGORIES: list[dict] = [
         "channels": [
             {"type": "text", "name": "сбор-на-катку", "topic": "Режим, ранг, сколько людей, голос. Формат — в закрепе."},
             {"type": "text", "name": "раскидки-и-тактики", "topic": "Сетапы смоков, флешек и разбор карт CS2."},
-            {"type": "text", "name": "ивенты-и-идеи", "topic": "Идеи турниров, ивентов и фич сервера."},
         ],
     },
     {
@@ -295,7 +294,7 @@ CATEGORIES: list[dict] = [
             {"type": "voice", "name": "🔫 Пати 2", "user_limit": 5},
             {"type": "voice", "name": "🎯 Практика", "user_limit": 5},
             {"type": "voice", "name": "🎧 Стрим-комната", "user_limit": 10},
-            {"type": "voice", "name": "🎉 Ивент", "user_limit": 20},
+            {"type": "voice", "name": "🎧 Чилл", "user_limit": 20},
         ],
     },
     {
