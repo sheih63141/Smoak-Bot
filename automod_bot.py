@@ -42,7 +42,7 @@ IDLE_MINUTES = int(os.getenv("IDLE_MINUTES", "15"))
 MUTE_TIMEOUT_MINUTES = int(os.getenv("MUTE_TIMEOUT_MINUTES", "60"))
 AUTO_TIMEOUT_ON_ROLE = os.getenv("AUTO_TIMEOUT_ON_ROLE", "1") == "1"
 
-MUTED_ROLE = "🔇 Заглушённый"
+MUTED_ROLE = os.getenv("MUTED_ROLE", "🔇 Мут")
 MUTE_ZONE = "🤐 Мут-зона"
 AFK_NAME = "AFK"
 LOG_CHANNEL = "логи"
@@ -260,9 +260,18 @@ async def on_voice_state_update(member: discord.Member,
 
 @client.event
 async def on_message(message: discord.Message) -> None:
-    """Написал в чат, сидя в войсе — значит живой."""
+    """Команды модерации + отметка активности в голосе."""
     if message.guild is None or message.author.bot:
         return
+
+    # /мут, /кик, /бан, /анмут, /помощь
+    if mod_commands is not None:
+        try:
+            if await mod_commands.handle_message(client, message):
+                return
+        except Exception as e:
+            print("commands:", repr(e))
+
     member = message.author
     if getattr(member, "voice", None) and member.voice and member.voice.channel:
         last_activity[(message.guild.id, member.id)] = utcnow()
@@ -309,6 +318,12 @@ async def idle_watcher() -> None:
 
 
 # --- тикеты: кнопка в #создать-тикет (ticket_gate.py) ---
+try:
+    import commands as mod_commands
+except Exception as e:
+    print("commands не подключён:", repr(e))
+    mod_commands = None
+
 try:
     import ticket_gate
     ticket_gate.setup(client)

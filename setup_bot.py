@@ -202,7 +202,7 @@ ROLES: list[dict] = [
     },
     {
         "key": "muted",
-        "name": "🔇 Заглушённый",
+        "name": "🔇 Мут",
         "color": 0x2F3136,
         "hoist": False,
         "mentionable": False,
