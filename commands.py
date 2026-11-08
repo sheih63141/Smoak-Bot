@@ -2,8 +2,8 @@
 """
 Команды модерации обычным текстом — работают без слэш-интеракций.
 
-  /мут @ник 1ч спам в чате      — тайм-аут (мут) на время
-  /анмут @ник                   — снять мут раньше срока
+  /мут @ник 1ч спам в чате      — мут: роль 🔇 Мут (только AFK и «В муте»)
+  /снятьмут @ник                — снять мут раньше срока
   /кик @ник причина             — выгнать с сервера
   /бан @ник причина             — забанить
   /помощь                       — список команд
@@ -19,8 +19,12 @@ import re
 
 import discord
 
+import moderation as mod
+
 PREFIXES = ("/", "!")
-COMMANDS = ("мут", "mute", "анмут", "unmute", "кик", "kick", "бан", "ban", "помощь", "help")
+COMMANDS = ("мут", "замутить", "mute", "анмут", "снятьмут", "размут", "unmute",
+            "кик", "выгнать", "kick", "бан", "забанить", "ban", "пред", "варн", "warn",
+            "помощь", "help")
 LOG_CHANNEL = "логи"
 
 STAFF_ROLES = ["🧰 Хелпер", "🔨 Модератор", "🛡 Администратор", "👑 Владелец"]
@@ -32,18 +36,20 @@ CALL_RE = re.compile(r"^[/!]\s*([а-яa-z]+)\s*(.*)$", re.IGNORECASE | re.DOTALL
 HELP = """**🛠 Команды модерации**
 
 ```
-/мут @ник 1ч причина      — мут (тайм-аут)
-/анмут @ник               — снять мут
-/кик @ник причина         — кик с сервера
-/бан @ник причина         — бан
+/мут @ник 10м причина     — мут
+/снятьмут @ник            — снять мут
+/кик @ник причина         — выгнать с сервера
+/бан @ник причина         — забанить
+/пред @ник причина        — предупреждение
 /помощь                   — эта шпаргалка
 ```
 
-**Время:** `30м` · `1ч` · `2ч30м` · `1д` · `7д` (без времени — 1 час)
+**Русские варианты:** `/замутить` · `/размут` · `/анмут` · `/выгнать` · `/забанить` · `/варн`
+**Время:** `30с` · `10м` · `2ч` · `7д` (без времени — 1 час, максимум 28 дней)
 **Кого:** @упоминание, ник или ID
-**Работает** и через `!`, если `/` неудобно.
+**Работает** и текстом с `!`, например `!мут @ник 10м спам`.
 
--# Команду может использовать только команда сервера."""
+-# Замученный видит только «💤 AFK» и «🔇 В муте». Мут снимается сам, когда выйдет время."""
 
 
 def _staff(member: discord.Member) -> bool:
@@ -162,13 +168,14 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
         return True
 
     # ---- АНМУТ ----
-    if cmd in ("анмут", "unmute"):
+    if cmd in ("анмут", "снятьмут", "размут", "unmute"):
         try:
             await target.timeout(None, reason=f"анмут: {author}")
-        except discord.HTTPException as e:
-            await _reply(message, f"❌ Discord не дал снять мут: {e}", 0xE74C3C)
-            return True
-        await _reply(message, f"🔊 **{target.display_name}** размучен.")
+        except discord.HTTPException:
+            pass
+        ok = await mod.remove_mute(guild, target, str(author))
+        await _reply(message, f"🔊 **{target.display_name}** размучен." if ok
+                     else f"ℹ️ У **{target.display_name}** не было мута.")
         await _log(guild, f"🔊 {author.mention} снял мут с {target.mention}")
         return True
 
@@ -180,21 +187,27 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
     reason = " ".join(reason.split()) or "без причины"
     reason_full = f"{reason} | модератор: {author}"
 
-    if cmd in ("мут", "mute"):
+    if cmd in ("пред", "варн", "warn"):
+        await _reply(message, f"⚠️ **{target.display_name}** получил предупреждение\n"
+                              f"Причина: {reason}", 0xE67E22)
+        await _log(guild, f"⚠️ {author.mention} выдал предупреждение {target.mention}. Причина: {reason}")
+        return True
+
+    if cmd in ("мут", "замутить", "mute"):
         dur = duration or datetime.timedelta(hours=1)
         if dur > datetime.timedelta(days=28):
             dur = datetime.timedelta(days=28)
-        try:
-            await target.timeout(dur, reason=reason_full)
-        except discord.HTTPException as e:
-            await _reply(message, f"❌ Не смог замутить: {e}", 0xE74C3C)
+        res = await mod.apply_mute(guild, target, dur, reason, author)
+        if res.startswith("Discord") or res.startswith("роль"):
+            await _reply(message, f"❌ {res}", 0xE74C3C)
             return True
-        human = _human(dur)
-        await _reply(message, f"🔇 **{target.display_name}** в муте на **{human}**\nПричина: {reason}")
-        await _log(guild, f"🔇 {author.mention} → мут {target.mention} на {human}. Причина: {reason}")
+        await _reply(message, f"🔇 **{target.display_name}** замучен на **{res}**\n"
+                              f"Причина: {reason}\n"
+                              f"Видит только «💤 AFK» и «🔇 В муте», мут снимется сам.")
+        await _log(guild, f"🔇 {author.mention} → мут {target.mention} на {res}. Причина: {reason}")
         return True
 
-    if cmd in ("кик", "kick"):
+    if cmd in ("кик", "выгнать", "kick"):
         try:
             await target.kick(reason=reason_full)
         except discord.HTTPException as e:
@@ -204,7 +217,7 @@ async def handle_message(client: discord.Client, message: discord.Message) -> bo
         await _log(guild, f"👢 {author.mention} кикнул {target} ({target.id}). Причина: {reason}")
         return True
 
-    if cmd in ("бан", "ban"):
+    if cmd in ("бан", "забанить", "ban"):
         try:
             await target.ban(reason=reason_full, delete_message_days=0)
         except discord.HTTPException as e:

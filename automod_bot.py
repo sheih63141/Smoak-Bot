@@ -120,6 +120,17 @@ async def on_ready() -> None:
         except Exception as e:      # порт занят — боту это не должно мешать
             print("[health] не поднялся:", repr(e))
 
+    if MUTE_CORE:
+        try:
+            guild = client.guilds[0] if client.guilds else None
+            if guild is not None:
+                await mod_core.ensure_mute_setup(guild)
+                await mod_core.apply_channel_rules(guild)
+            logch = discord.utils.get(guild.text_channels, name="логи") if guild else None
+            asyncio.create_task(mod_core.expire_loop(client, logch))
+        except Exception as e:
+            print("mute setup:", repr(e))
+
     try:
         import slash_commands
         await slash_commands.register(client, TOKEN)
@@ -374,6 +385,14 @@ try:
 except Exception as e:
     print("join_gate не подключён:", repr(e))
     GATE = False
+
+# --- мут: автоснятие по истечении срока (moderation.py) ---
+try:
+    import moderation as mod_core
+    MUTE_CORE = True
+except Exception as e:
+    print("moderation не подключён:", repr(e))
+    MUTE_CORE = False
 
 # --- уведомления о стриме Twitch в том же процессе (если модуль рядом) ---
 try:
