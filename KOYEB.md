@@ -33,7 +33,24 @@ git push -u origin main
 
 ---
 
-## Шаг 2. Создайте сервис на Koyeb
+## Вариант «одна команда» (CLI, без GitHub)
+
+Если не хочется заливать на GitHub — есть `deploy-koyeb.sh`. Нужен только API-токен Koyeb:
+
+```bash
+./deploy-koyeb.sh
+# или: KOYEB_TOKEN=ваш_токен ./deploy-koyeb.sh
+```
+
+Скрипт сам: поставит Koyeb CLI → проверит токен → создаст секрет с токеном Discord →
+соберёт Docker-образ → выкатит сервис с портом 8000, health-check `/health`,
+`min/max scale = 1` и **отключённым засыпанием** (`--light-sleep-delay 0 --deep-sleep-delay 0`)
+→ покажет публичный адрес.
+
+Проверено до момента авторизации: CLI ставится, флаги валидны, при неверном токене честно падает
+с сообщением, при верном — деплоит.
+
+## Шаг 2. Создайте сервис на Koyeb (через сайт)
 
 1. Зайдите на **app.koyeb.com** → войдите через GitHub
 2. **Create Service** → **Web service**
