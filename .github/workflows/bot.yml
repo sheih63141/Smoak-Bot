@@ -8,8 +8,10 @@ on:
     - cron: "*/30 * * * *"    # каждые 30 минут: если бот остановился — поднимется
 
 concurrency:
-  group: smoakteam-bot-${{ github.run_id }}   # своя группа на запуск: очередь GitHub не блокируется
-  cancel-in-progress: false
+  # ВАЖНО: одна группа на весь бот. Иначе запускается несколько ботов сразу —
+  # отсюда двойные ответы в тикетах и «session has been invalidated».
+  group: smoakteam-bot
+  cancel-in-progress: true   # новый запуск выкидывает старый: бот всегда один
 
 jobs:
   run:
