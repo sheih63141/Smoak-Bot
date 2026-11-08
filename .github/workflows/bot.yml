@@ -32,7 +32,7 @@ jobs:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           GUILD_ID: "1568607492991353053"
           MEMBERS_INTENT: "0"
-          IDLE_MINUTES: "15"
+          # авто-AFK выключен: бот не слышит речь в войсе
         # 5 ч 56 мин — за 4 минуты до лимита GitHub бот корректно завершается,
         # следующий запуск из расписания подхватывает эстафету
         run: timeout 21400 python -u automod_bot.py || true

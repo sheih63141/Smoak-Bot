@@ -7,8 +7,9 @@
      Сняли тайм-аут → роль снимается. И наоборот: выдали роль вручную → включается тайм-аут.
   2. ПЕРЕКИДЫВАЕТ. Заглушённого участника, зашедшего в любой войс, бот переносит
      в канал «🤐 Мут-зона» (или отключает от голоса, если канала нет).
-  3. НЕАКТИВНОСТЬ. Если человек сидит в войсе и N минут ничего не делает
-     (не говорит, не стримит, не переключался, не писал в чат) — бот переносит его в AFK.
+  3. АВТО-AFK ОТКЛЮЧЁН. Discord не присылает боту событие «участник говорит»,
+     поэтому любой таймер «неактивности» переносил разговаривающих людей.
+     Канал «😴 AFK» остаётся обычным войсом: заходят туда сами.
 
 Запуск:
     pip install discord.py
@@ -23,7 +24,6 @@
 Бот должен работать постоянно (ПК, VPS, хостинг ботов). Пока процесс жив — работает автоматика.
 
 Настройки через переменные окружения:
-    IDLE_MINUTES=15        через сколько минут неактивности кидать в AFK (0 = выключить)
     MUTE_TIMEOUT_MINUTES=60  какой тайм-аут ставить, если роль выдали вручную
     AUTO_TIMEOUT_ON_ROLE=1 1 = роль вручную включает тайм-аут, 0 = не включать
 """
@@ -39,7 +39,6 @@ import discord
 
 TOKEN = os.getenv("DISCORD_TOKEN", "")
 GUILD_ID = int(os.getenv("GUILD_ID", "0") or 0)
-IDLE_MINUTES = int(os.getenv("IDLE_MINUTES", "15"))
 MUTE_TIMEOUT_MINUTES = int(os.getenv("MUTE_TIMEOUT_MINUTES", "60"))
 AUTO_TIMEOUT_ON_ROLE = os.getenv("AUTO_TIMEOUT_ON_ROLE", "1") == "1"
 
@@ -64,8 +63,6 @@ intents.guilds = True
 from discord.ext import commands as _dp_commands
 
 client = _dp_commands.Bot(command_prefix="!", intents=intents, help_command=None)
-last_activity: dict[tuple[int, int], datetime.datetime] = {}
-_loop: asyncio.Task | None = None
 
 
 def utcnow() -> datetime.datetime:
@@ -99,7 +96,6 @@ def muted_role(guild: discord.Guild) -> discord.Role | None:
 
 @client.event
 async def on_ready() -> None:
-    global _loop
     print(f"Бот на связи: {client.user}")
     for g in client.guilds:
         print(f"  сервер: {g.name} ({g.id}) | участников {g.member_count} | "
@@ -109,10 +105,8 @@ async def on_ready() -> None:
     print(f"  тикеты (кнопка): {'вкл' if TICKETS else 'выкл'}")
     print(f"  автовыдача роли участника: {'вкл' if GATE else 'выкл'}")
     print(f"  стрим-уведомления: {'вкл → #анонсы-стримов' if TWITCH else 'выкл'}")
-    print(f"  режим: AFK через {IDLE_MINUTES} мин неактивности, "
+    print(f"  режим: авто-AFK выключен | "
           f"тайм-аут по роли {MUTE_TIMEOUT_MINUTES} мин ({'вкл' if AUTO_TIMEOUT_ON_ROLE else 'выкл'})")
-    if _loop is None or _loop.done():
-        _loop = asyncio.create_task(idle_watcher())
 
     global _health_started
     if not _health_started:
@@ -272,25 +266,11 @@ async def on_voice_state_update(member: discord.Member,
                 pass
         return
 
-    # активность
-    key = (guild.id, member.id)
-    if after.channel is None:
-        last_activity.pop(key, None)
-        return
-    fired = (
-        before.channel != after.channel
-        or after.self_stream != before.self_stream
-        or after.self_video != before.self_video
-        or after.self_mute != before.self_mute
-        or after.self_deaf != before.self_deaf
-    )
-    if fired or key not in last_activity:
-        last_activity[key] = utcnow()
 
 
 @client.event
 async def on_message(message: discord.Message) -> None:
-    """Команды модерации + отметка активности в голосе."""
+    """Команды модерации."""
     if message.guild is None or message.author.bot:
         return
 
@@ -302,49 +282,12 @@ async def on_message(message: discord.Message) -> None:
         except Exception as e:
             print("commands:", repr(e))
 
-    member = message.author
-    if getattr(member, "voice", None) and member.voice and member.voice.channel:
-        last_activity[(message.guild.id, member.id)] = utcnow()
 
 
-# --------------------------------------------------------------- 3. AFK-сторож
-async def idle_watcher() -> None:
-    await client.wait_until_ready()
-    while not client.is_closed():
-        try:
-            if IDLE_MINUTES > 0:
-                for guild in client.guilds:
-                    afk = discord.utils.get(guild.voice_channels, name=AFK_NAME) or guild.afk_channel
-                    if afk is None:
-                        continue
-                    for vc in guild.voice_channels:
-                        if vc == afk:
-                            continue
-                        for member in list(vc.members):
-                            if is_protected(member):
-                                continue
-                            if member.voice and (member.voice.self_stream or member.voice.self_video):
-                                last_activity[(guild.id, member.id)] = utcnow()
-                                continue
-                            key = (guild.id, member.id)
-                            last = last_activity.get(key)
-                            if last is None:
-                                last_activity[key] = utcnow()
-                                continue
-                            idle_min = (utcnow() - last).total_seconds() / 60
-                            if idle_min >= IDLE_MINUTES:
-                                try:
-                                    await member.move_to(afk, reason=f"авто-AFK: {int(idle_min)} мин без активности")
-                                    last_activity.pop(key, None)
-                                    await log(guild, f"💤 {member.mention} — {int(idle_min)} мин без активности → AFK")
-                                except discord.HTTPException:
-                                    pass
-            if IDLE_MINUTES > 0 or True:
-                print(f"[heartbeat] {utcnow().strftime('%H:%M:%S')} — бот жив, "
-                      f"соединение: {'закрыто' if client.is_closed() else 'ок'}")
-        except Exception as e:  # сторож не должен падать
-            print("idle_watcher:", repr(e))
-        await asyncio.sleep(60)
+# --------------------------------------------------------------- 3. AFK
+# Автоперенос убран намеренно: шлюз Discord не сообщает о факте речи в войсе,
+# поэтому бот не может отличить разговаривающего участника от молчащего.
+# «😴 AFK» — обычный голосовой канал, туда заходят по желанию.
 
 
 # --- тикеты: кнопка в #создать-тикет (ticket_gate.py) ---

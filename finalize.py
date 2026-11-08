@@ -58,20 +58,20 @@ async def on_ready() -> None:
             verification_level=discord.VerificationLevel.medium,
             explicit_content_filter=discord.ContentFilter.all_members,
             default_notifications=discord.NotificationLevel.only_mentions,
-            afk_timeout=300,
+            afk_timeout=3600,
             reason="finalize: базовая защита",
         )
         print("  ✅ уровень верификации: средний | фильтр контента: все участники | уведомления: только упоминания")
     except discord.HTTPException as e:
         print(f"  ⚠️ настройки сервера: {e}")
 
-    afk = discord.utils.get(g.voice_channels, name="AFK")
-    if afk:
-        try:
-            await g.edit(afk_channel=afk, reason="finalize: AFK")
-            print("  ✅ AFK-канал: AFK (тайм-аут 5 мин)")
-        except discord.HTTPException as e:
-            print(f"  ⚠️ AFK: {e}")
+    # авто-AFK не привязываем: Discord переносил разговаривающих участников.
+    # Канал «😴 AFK» остаётся обычным войсом, заходят вручную.
+    try:
+        await g.edit(afk_channel=None, reason="finalize: без авто-AFK")
+        print("  ✅ авто-AFK выключен (канал остаётся, переносов нет)")
+    except discord.HTTPException as e:
+        print(f"  ⚠️ AFK: {e}")
 
     logs = discord.utils.get(g.text_channels, name="логи")
     alerts = [discord.AutoModRuleAction(channel_id=logs.id)] if logs else []
