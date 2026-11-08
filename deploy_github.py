@@ -88,19 +88,21 @@ def main() -> int:
 
     # ---------- 3. пуш кода ----------
     step("3/6", "заливаю код")
-    git = ["git", "-c", f"http.extraHeader=Authorization: Bearer {GH}"]
+    # авторизованный URL только на время пуша, в конфиг не попадает
+    auth_url = f"https://x-access-token:{GH}@github.com/{owner}/{REPO_NAME}.git"
     existing = subprocess.run(["git", "remote", "get-url", "origin"],
                               cwd=HERE, capture_output=True, text=True)
     if existing.returncode == 0:
         subprocess.run(["git", "remote", "set-url", "origin", clone_url], cwd=HERE, check=True)
     else:
-        subprocess.run(git + ["remote", "add", "origin", clone_url], cwd=HERE, check=True)
+        subprocess.run(["git", "remote", "add", "origin", clone_url], cwd=HERE, check=True)
     subprocess.run(["git", "branch", "-M", "main"], cwd=HERE, capture_output=True)
-    push = subprocess.run(git + ["push", "-f", "origin", "main"],
+    push = subprocess.run(["git", "push", "-f", auth_url, "main"],
                           cwd=HERE, capture_output=True, text=True)
+    safe = (push.stderr or "").replace(GH, "***")
     if push.returncode != 0:
         print("❌ пуш не удался:")
-        print(push.stderr[-1500:])
+        print(safe[-1500:])
         return 1
     print("    ✅ код в репозитории")
 
