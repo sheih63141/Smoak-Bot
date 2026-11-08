@@ -8,8 +8,8 @@ on:
     - cron: "*/30 * * * *"    # каждые 30 минут: если бот остановился — поднимется
 
 concurrency:
-  group: smoakteam-bot
-  cancel-in-progress: false   # второй запуск ждёт, а не убивает первый
+  group: smoakteam-bot-${{ github.run_id }}   # своя группа на запуск: очередь GitHub не блокируется
+  cancel-in-progress: false
 
 jobs:
   run:
