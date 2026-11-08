@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """
-Онбординг SmoakTeam: 3 задания при входе.
+Онбординг SmoakTeam: 2 задания, ник НЕ требуется.
 
-1) «Кто ты?»            — подтверждение правил (роль НЕ выдаёт);
-2) «Что тебе интересно?» — открывает тематические каналы;
-3) «Ник с Твича»         — приводит в #📕│правила к кнопке «Указать ник».
+1) «Кто ты?»            — обязательное, сразу выдаёт роль «👋 Участник»;
+2) «Что тебе интересно?» — по желанию, открывает тематические каналы.
 
-Discord не умеет принимать свободный текст в вопросах онбординга (только выбор
-вариантов), поэтому сам ник вводится в модалке бота: «Указать ник» → «Готово»
-→ бот ставит ник и выдаёт роль «👋 Участник».
+Раньше было третье задание «Ник с Твича» — убрано по просьбе владельца:
+новичок попадает на сервер без всяких форм и смены ника.
 
-Идемпотентно: повторный запуск переиспользует ID существующих вопросов/вариантов.
+Идемпотентно: повторный запуск переиспользует ID существующих вопросов.
     DISCORD_TOKEN=... GUILD_ID=... python3 onboarding_setup.py
 """
 from __future__ import annotations
@@ -30,20 +28,11 @@ CH_CHAT = "1568626371335557238"        # 💬│флудилка
 CH_MEMES = "1568626373591826443"       # 🖼│мемы-и-клипы
 CH_PARTY1 = "1568626398300602511"      # 🔫 Пати - 1
 CH_PARTY2 = "1568626399793651904"      # 🔫 Пати - 2
+MEMBER_ROLE = "1568626326792048693"    # 👋 Участник
 
 
 def emoji(name: str) -> dict:
     return {"id": None, "name": name, "animated": False}
-
-
-_seq = 0
-
-
-def snowflake() -> str:
-    """Уникальный ID для нового вопроса/варианта (Discord требует id даже у новых)."""
-    global _seq
-    _seq += 1
-    return str(((int(time.time() * 1000) - 1420070400000) << 22) | (_seq & 0x3FFFFF))
 
 
 def api(method: str, path: str, data=None):
@@ -62,13 +51,24 @@ def api(method: str, path: str, data=None):
         return e.code, json.loads(e.read() or b"{}")
 
 
-def opt(title: str, description: str, channels=(), emoji_name="✅", old=None) -> dict:
+_seq = 0
+
+
+def snowflake() -> str:
+    """Уникальный ID для нового вопроса/варианта (Discord требует id даже у новых)."""
+    global _seq
+    _seq += 1
+    return str(((int(time.time() * 1000) - 1420070400000) << 22) | (_seq & 0x3FFFFF))
+
+
+def opt(title: str, description: str, channels=(), roles=(),
+        emoji_name="✅", old=None) -> dict:
     o = {
         "title": title,
         "description": description,
         "emoji": emoji(emoji_name),
         "channel_ids": list(channels),
-        "role_ids": [],          # роль выдаёт бот после ввода ника
+        "role_ids": list(roles),
     }
     o["id"] = old["id"] if old else snowflake()
     return o
@@ -103,27 +103,22 @@ def main() -> None:
 
     p1 = old("Кто ты?")
     p2 = old("Что тебе интересно?")
-    p3 = old("Ник с Твича")
 
     prompts = [
         prompt("Кто ты?", [
             opt("👋 Я участник — с правилами ознакомлен",
-                "Принимаю правила. Дальше — задание с ником Твича",
-                [RULES], "👋", old=old_option(p1, "👋 Я участник — с правилами ознакомлен")),
+                "Сразу выдаст роль «Участник» и откроет все каналы",
+                [RULES], [MEMBER_ROLE], "👋",
+                old_option(p1, "👋 Я участник — с правилами ознакомлен")),
         ], single=True, required=True, old=p1),
         prompt("Что тебе интересно?", [
             opt("🔫 CS2 и пати", "Пати-каналы Counter-Strike",
-                [CH_PARTY1, CH_PARTY2], "🔫", old_option(p2, "🔫 CS2 и пати")),
-            opt("📺 Стримы", "Анонсы эфиров", [CH_STREAMS], "📺",
+                [CH_PARTY1, CH_PARTY2], (), "🔫", old_option(p2, "🔫 CS2 и пати")),
+            opt("📺 Стримы", "Анонсы эфиров", [CH_STREAMS], (), "📺",
                 old_option(p2, "📺 Стримы")),
             opt("💬 Общение и мемы", "Флудилка, мемы и клипы",
-                [CH_CHAT, CH_MEMES], "💬", old_option(p2, "💬 Общение и мемы")),
+                [CH_CHAT, CH_MEMES], (), "💬", old_option(p2, "💬 Общение и мемы")),
         ], single=False, required=False, old=p2),
-        prompt("Ник с Твича", [
-            opt("🎮 Указать ник",
-                "Зайди в #правила, нажми кнопку, впиши ник и Готово — бот выдаст роль Участник",
-                [RULES], "🎮", old_option(p3, "🎮 Указать ник")),
-        ], single=True, required=True, old=p3),
     ]
 
     payload = {
@@ -139,9 +134,10 @@ def main() -> None:
         raise SystemExit(1)
     for i, p in enumerate(res.get("prompts", []), 1):
         print(f"  задание {i}: {p['title']} "
-              f"({'обязательное' if p['required'] else 'по желанию'}) — "
-              f"{len(p['options'])} вариант(ов)")
-    print("  каналов по умолчанию:", [c for c in res.get("default_channel_ids", [])])
+              f"({'обязательное' if p['required'] else 'по желанию'})")
+        for o in p["options"]:
+            print(f"     {o['title']} → роли {o['role_ids']}")
+    print("  ник не требуется")
 
 
 if __name__ == "__main__":

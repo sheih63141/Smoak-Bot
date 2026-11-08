@@ -94,6 +94,54 @@ def muted_role(guild: discord.Guild) -> discord.Role | None:
     return discord.utils.get(guild.roles, name=MUTED_ROLE)
 
 
+async def _mute_setup() -> None:
+    try:
+        guild = client.guilds[0] if client.guilds else None
+        if guild is not None:
+            await mod_core.ensure_mute_setup(guild)
+            await mod_core.apply_channel_rules(guild)
+        logch = discord.utils.get(guild.text_channels, name="📋│логи") if guild else None
+        asyncio.create_task(mod_core.expire_loop(client, logch))
+    except Exception as e:
+        print("mute setup:", repr(e))
+
+
+async def _sync_and_panels() -> None:
+    try:
+        synced = await client.tree.sync()
+        print("[slash] команды синхронизированы: " + ", ".join("/" + c.name for c in synced))
+        for g in client.guilds:
+            await movie_night.ensure_panel(g)
+    except Exception as e:
+        print("slash_commands:", repr(e))
+    for name, mod, hook in (
+        ("ticket_gate", globals().get("ticket_gate"), "on_ready"),
+        ("twitch_notify", globals().get("twitch_notify"), "on_ready"),
+    ):
+        if mod is None:
+            continue
+        try:
+            await getattr(mod, hook)(client)
+        except Exception as e:
+            print(f"{name} hook:", repr(e))
+
+
+@client.event
+async def on_interaction(interaction: discord.Interaction) -> None:
+    """Страховка: ответ на кнопку, даже если постоянный view не зарегистрирован."""
+    if interaction.type != discord.InteractionType.component:
+        return
+    cid = (interaction.data or {}).get("custom_id")
+    if cid != "smoak:movie":
+        return
+    if interaction.response.is_done():
+        return
+    try:
+        await movie_night.start_movie(interaction)
+    except Exception as e:
+        print("[interaction] fallback:", repr(e))
+
+
 @client.event
 async def on_ready() -> None:
     print(f"Бот на связи: {client.user}")
@@ -103,7 +151,7 @@ async def on_ready() -> None:
               f"мут-зона: {'есть' if discord.utils.get(g.voice_channels, name=MUTE_ZONE) else 'НЕТ'} | "
               f"AFK: {'есть' if discord.utils.get(g.voice_channels, name=AFK_NAME) else 'НЕТ'}")
     print(f"  тикеты (кнопка): {'вкл' if TICKETS else 'выкл'}")
-    print("  выдача роли участника: после ника в задании 3")
+    print(f"  выдача роли участника: онбординг | запас: {'вкл' if GATE else 'выкл'}")
     print(f"  стрим-уведомления: {'вкл → #анонсы-стримов' if TWITCH else 'выкл'}")
     print(f"  режим: авто-AFK выключен | "
           f"тайм-аут по роли {MUTE_TIMEOUT_MINUTES} мин ({'вкл' if AUTO_TIMEOUT_ON_ROLE else 'выкл'})")
@@ -116,39 +164,14 @@ async def on_ready() -> None:
         except Exception as e:      # порт занят — боту это не должно мешать
             print("[health] не поднялся:", repr(e))
 
+    # тяжёлую настройку прав каналов выносим в фон: on_ready должен вернуться сразу,
+    # иначе Discord считает, что приложение не отвечает
     if MUTE_CORE:
-        try:
-            guild = client.guilds[0] if client.guilds else None
-            if guild is not None:
-                await mod_core.ensure_mute_setup(guild)
-                await mod_core.apply_channel_rules(guild)
-            logch = discord.utils.get(guild.text_channels, name="логи") if guild else None
-            asyncio.create_task(mod_core.expire_loop(client, logch))
-        except Exception as e:
-            print("mute setup:", repr(e))
+        asyncio.create_task(_mute_setup())
 
-    try:
-        import slash_commands
-        slash_commands.build(client)
-        client.add_view(slash_commands.NickButton())
-        synced = await client.tree.sync()
-        print("[slash] команды синхронизированы: " + ", ".join("/" + c.name for c in synced))
-        for g in client.guilds:
-            await slash_commands.ensure_nick_panel(g)
-    except Exception as e:
-        print("slash_commands:", repr(e))
+    if SLASH:
+        asyncio.create_task(_sync_and_panels())
 
-    # хуки модулей (кнопки и уведомления) — один on_ready на весь процесс
-    for name, mod, hook in (
-        ("ticket_gate", globals().get("ticket_gate"), "on_ready"),
-        ("twitch_notify", globals().get("twitch_notify"), "on_ready"),
-    ):
-        if mod is None:
-            continue
-        try:
-            await getattr(mod, hook)(client)
-        except Exception as e:
-            print(f"{name} hook:", repr(e))
 
 
 # --------------------------------------------------------------------------- 1. муть ↔ тайм-аут
@@ -199,6 +222,13 @@ async def on_member_update(before: discord.Member, after: discord.Member) -> Non
         except discord.HTTPException as e:
             print("не смог снять тайм-аут:", e)
 
+    # запасная выдача роли, если онбординг пропустили
+    mod = globals().get("join_gate")
+    if mod:
+        try:
+            await mod.handle_member_update(before, after)
+        except Exception as e:
+            print("join_gate:", repr(e))
 
 
 @client.event
@@ -218,11 +248,12 @@ async def on_raw_reaction_add(payload: discord.RawReactionActionEvent) -> None:
 
 @client.event
 async def on_member_join(member: discord.Member) -> None:
-    try:
-        import slash_commands
-        await slash_commands.prompt_newcomer(member)
-    except Exception as e:
-        print("nick prompt:", repr(e))
+    mod = globals().get("join_gate")
+    if mod:
+        try:
+            await mod.handle_member_join(member)
+        except Exception as e:
+            print("join_gate:", repr(e))
 
 
 # ------------------------------------------------------- 2. перекидывание в мут-зону + трекинг
@@ -260,6 +291,13 @@ async def on_message(message: discord.Message) -> None:
     if message.guild is None or message.author.bot:
         return
 
+    try:
+        import movie_night
+        if await movie_night.handle_message(client, message):
+            return
+    except Exception as e:
+        print("movie_night:", repr(e))
+
     # /мут, /кик, /бан, /анмут, /помощь
     if mod_commands is not None:
         try:
@@ -291,11 +329,15 @@ except Exception as e:
     print("ticket_gate не подключён:", repr(e))
     TICKETS = False
 
-# «получить-роль» удалён: роль выдаётся только после ника в задании 3.
-# role_gate.py и join_gate.py больше не подключаются, чтобы не было обхода.
+# «получить-роль» удалён, ник не требуется: роль «👋 Участник» выдаёт онбординг.
+# join_gate — запасной путь, если человек нажал «Пропустить» (нужен Members Intent).
+try:
+    import join_gate
+    GATE = True
+except Exception as e:
+    print("join_gate не подключён:", repr(e))
+    GATE = False
 GATE_BTN = False
-
-GATE = False   # автовыдача роли при входе выключена: роль только после ника
 
 # --- мут: автоснятие по истечении срока (moderation.py) ---
 try:
@@ -304,6 +346,20 @@ try:
 except Exception as e:
     print("moderation не подключён:", repr(e))
     MUTE_CORE = False
+
+# --- команды и постоянные кнопки: ДО подключения к шлюзу ---
+# Раньше add_view() вызывали в on_ready после настройки прав 39 каналов;
+# в эти секунды Discord не получал ответ → «Приложение не ответило вовремя».
+try:
+    import slash_commands
+    import movie_night
+    slash_commands.build(client)
+    client.add_view(movie_night.MovieButton())
+    SLASH = True
+    print("[ui] кнопки зарегистрированы до подключения")
+except Exception as e:
+    print("slash_commands не подключён:", repr(e))
+    SLASH = False
 
 # --- уведомления о стриме Twitch в том же процессе (если модуль рядом) ---
 try:

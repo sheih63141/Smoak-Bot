@@ -1,19 +1,17 @@
 #!/usr/bin/env python3
 """
-Русские слэш-команды + задание «Ник с Твича» при входе на сервер.
+Русские слэш-команды SmoakTeam.
 
-Команды модерации (коротко, без дублей):
     /мут        — роль 🔇 Мут: видит только «😴 AFK» и «В муте»
     /снятьмут   — снять мут
     /кик        — выгнать
     /бан        — забанить
     /пред       — предупреждение
     /помощь     — шпаргалка
+    /фильм      — запустить «Смотрим фильм»
 
-Вход на сервер (3 задания в онбординге):
-    третье задание «Ник с Твича» приводит в #📕│правила → кнопка «Указать ник»
-    → модалка → «Готово» → бот ставит ник и сразу выдаёт роль «👋 Участник».
-    Канала «получить-роль» больше нет, в личные сообщения бот не пишет.
+Ник с Твича более НЕ обязателен: новичок проходит онбординг и сразу получает
+роль «👋 Участник». Панель «Указать ник» и модалка удалены по просьбе владельца.
 """
 from __future__ import annotations
 
@@ -22,120 +20,7 @@ from discord import app_commands
 
 import commands as textcmd
 import moderation as mod
-
-NICK_CHANNEL = "📕│правила"
-MEMBER_ROLE = "👋 Участник"
-LOG_CHANNEL = "📋│логи"
-WELCOME_CHANNEL = "💬│флудилка"
-PANEL_MARK = "УКАЗАТЬ НИК TWITCH"
-
-
-# ---------------------------------------------------------------- модалка ника
-
-class NickModal(discord.ui.Modal, title="Твой ник с Твича"):
-    def __init__(self):
-        super().__init__(timeout=600)
-        self.nick = discord.ui.TextInput(
-            label="Ник: (Твича)",
-            placeholder="например: smoak52",
-            min_length=2, max_length=32, required=True)
-
-    async def on_submit(self, interaction: discord.Interaction):
-        # сначала подтверждаем интеракцию — у Discord на это 3 секунды
-        await interaction.response.defer(ephemeral=True)
-        guild = interaction.guild
-        member = interaction.user
-        if not isinstance(member, discord.Member):
-            member = guild.get_member(member.id) or await guild.fetch_member(member.id)
-        value = str(self.nick.value).strip()
-
-        try:
-            await member.edit(nick=value, reason="ник с Твича из онбординга")
-        except discord.Forbidden:
-            return await interaction.followup.send(
-                "⛔ Не могу сменить ник: владелец сервера или роль выше моей.", ephemeral=True)
-        except discord.HTTPException as e:
-            return await interaction.followup.send(
-                f"❌ Discord не дал сменить ник: {e}", ephemeral=True)
-
-        role = discord.utils.get(guild.roles, name=MEMBER_ROLE)
-        if role is not None and role not in member.roles:
-            try:
-                await member.add_roles(role, reason="ник с Твича указан — онбординг пройден")
-            except discord.HTTPException as e:
-                print("[nick] не выдал роль:", repr(e))
-
-        logs = discord.utils.get(guild.text_channels, name=LOG_CHANNEL)
-        if logs:
-            try:
-                await logs.send(f"🎮 {member.mention} указал ник **{value}** → выдана роль «{MEMBER_ROLE}»")
-            except discord.HTTPException:
-                pass
-        welcome = discord.utils.get(guild.text_channels, name=WELCOME_CHANNEL)
-        if welcome:
-            try:
-                await welcome.send(f"👋 Добро пожаловать, **{value}**!")
-            except discord.HTTPException:
-                pass
-
-        await interaction.followup.send(
-            f"✅ Готово! Ты **{value}**, роль «{MEMBER_ROLE}» выдана — сервер открыт.",
-            ephemeral=True)
-
-
-class NickButton(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)  # постоянная кнопка — работает и после перезапуска
-
-    @discord.ui.button(label="Указать ник", emoji="🎮", style=discord.ButtonStyle.success,
-                       custom_id="smoak:setnick")
-    async def set_nick(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(NickModal())
-
-
-def nick_panel_embed() -> discord.Embed:
-    e = discord.Embed(
-        title="Ник: (Твича)",
-        description=("**Задание 3.** Нажми **Указать ник**, впиши свой ник с Twitch и нажми **Готово**.\n\n"
-                     "Бот сразу поставит этот ник на сервере и выдаст роль **👋 Участник** — "
-                     "откроются все каналы.\n\n"
-                     "Пример: `smoak52` → ник на сервере **smoak52**. Поменять можно в любой момент."),
-        color=0x9146FF)
-    e.set_footer(text=PANEL_MARK)
-    return e
-
-
-async def ensure_nick_panel(guild: discord.Guild) -> None:
-    ch = discord.utils.get(guild.text_channels, name=NICK_CHANNEL)
-    if ch is None:
-        return
-    try:
-        async for m in ch.history(limit=40):
-            if m.author.id == guild.me.id and m.embeds and \
-                    (m.embeds[0].footer and m.embeds[0].footer.text == PANEL_MARK):
-                return
-        msg = await ch.send(embed=nick_panel_embed(), view=NickButton())
-        try:
-            await msg.pin(reason="задание 3: ник с Твича")
-        except discord.HTTPException:
-            pass
-        print("[nick] панель ника готова в #", NICK_CHANNEL)
-    except discord.HTTPException as e:
-        print("[nick] панель:", repr(e))
-
-
-async def prompt_newcomer(member: discord.Member) -> None:
-    """Зовём новичка к заданию 3 — в канал, без личных сообщений."""
-    ch = discord.utils.get(member.guild.text_channels, name=NICK_CHANNEL)
-    if ch is None:
-        return
-    try:
-        await ch.send(
-            f"{member.mention} добро пожаловать! **Задание 3:** нажми **Указать ник** ниже → "
-            f"впиши ник с Твича → **Готово**. Бот поставит ник и откроет сервер.",
-            view=NickButton(), delete_after=900)
-    except discord.HTTPException:
-        pass
+import movie_night
 
 
 # ---------------------------------------------------------------- команды
@@ -235,6 +120,8 @@ def build(role_mute):
     async def help_cmd(interaction: discord.Interaction):
         await interaction.response.send_message(textcmd.HELP, ephemeral=True)
 
-    for cmd in (mute, unmute, kick, ban, warn, help_cmd):
-        role_mute.tree.add_command(cmd)
+    registered = {c.name for c in role_mute.tree.get_commands()}
+    for cmd in (mute, unmute, kick, ban, warn, help_cmd, movie_night.slash_command()):
+        if cmd.name not in registered:      # on_ready может вызваться повторно
+            role_mute.tree.add_command(cmd)
     return role_mute

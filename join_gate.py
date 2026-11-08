@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Лог входа новичков. Роль «👋 Участник» НЕ выдаётся здесь.
+Запасная выдача роли «👋 Участник» — ник больше не требуется.
 
-Логика:
-  • зашёл на сервер и правила уже приняты  → роль выдаётся сразу;
-  • зашёл и висит на экране правил (pending) → роль выдаётся в момент,
-    когда он поставил галочки и нажал «Принять правила»;
+Основной путь: онбординг (вопрос «Кто ты?» выдаёт роль сразу).
+Здесь ловим тех, кто нажал «Пропустить» или уже принял правила:
+  • зашёл и правила уже приняты → роль сразу;
+  • висит на экране правил (pending) → роль в момент принятия;
   • каждый вход пишется в #логи.
 
-Роль выдаётся один раз и не трогает другие роли. Ботов пропускает.
+Роль выдаётся один раз, дублей нет, ботов пропускает.
 
 Требует SERVER MEMBERS INTENT (Developer Portal → Bot → Privileged Gateway Intents).
 
@@ -50,10 +50,7 @@ async def grant(member: discord.Member, why: str) -> None:
         print(f"[join_gate] роль выдана: {member} ({why})")
         ch = discord.utils.get(member.guild.text_channels, name=WELCOME_CHANNEL)
         if ch:
-            await ch.send(
-                f"👋 {member.mention} теперь **{MEMBER_ROLE}**. "
-                f"Ищи пати в #поиск-игроков, анонсы эфиров — в #анонсы-стримов."
-            )
+            await ch.send(f"👋 {member.mention} теперь **{MEMBER_ROLE}**.")
     except discord.HTTPException as e:
         print("[join_gate] не смог выдать роль:", e)
 
@@ -67,13 +64,13 @@ async def handle_member_join(member: discord.Member) -> None:
     if member.bot:
         return
     await _log(member.guild, f"📥 {member.mention} зашёл на сервер")
-    # роль выдаёт только NickModal после того, как человек указал ник с Твича
-    return
+    if not member.pending:
+        await grant(member, "вошёл на сервер")
 
 
 async def handle_member_update(before: discord.Member, after: discord.Member) -> None:
-    # онбординг пройден, но роль появится только после ввода ника
-    return
+    if before.pending and not after.pending:
+        await grant(after, "принял правила / пропустил онбординг")
 
 
 if __name__ == "__main__":
