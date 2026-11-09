@@ -152,7 +152,7 @@ async def on_ready() -> None:
               f"AFK: {'есть' if discord.utils.get(g.voice_channels, name=AFK_NAME) else 'НЕТ'}")
     print(f"  тикеты (кнопка): {'вкл' if TICKETS else 'выкл'}")
     print(f"  выдача роли участника: онбординг | запас: {'вкл' if GATE else 'выкл'}")
-    print(f"  стрим-уведомления: {'вкл → #анонсы-стримов' if TWITCH else 'выкл'}")
+    print(f"  стрим-уведомления: {'вкл → #' + (os.getenv('STREAM_CHANNEL') or '📺│стримы') if TWITCH else 'выкл'}")
     print(f"  режим: авто-AFK выключен | "
           f"тайм-аут по роли {MUTE_TIMEOUT_MINUTES} мин ({'вкл' if AUTO_TIMEOUT_ON_ROLE else 'выкл'})")
 

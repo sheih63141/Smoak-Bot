@@ -1,0 +1,30 @@
+name: SmoakTeam stream alerts
+
+# Независимая проверка эфира: короткий проход раз в 10 минут.
+# Работает даже когда основной бот выключен (таймаут/рестарт Actions).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/10 * * * *"
+
+concurrency:
+  group: smoakteam-stream
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ставлю зависимости
+        run: pip install --no-cache-dir -r requirements.txt
+      - name: Проверить эфир и опубликовать анонс
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          GUILD_ID: "1568607492991353053"
+          TWITCH_LOGIN: "smoak52"
+          STREAM_CHANNEL: "📺│стримы"
+        run: python -u twitch_notify.py
