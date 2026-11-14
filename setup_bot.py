@@ -620,8 +620,11 @@ class Builder:
             self.say(f"✅ # {name}")
 
         # приветственное сообщение в ключевых каналах
+        if name == "правила" and isinstance(ch, discord.TextChannel):
+            from rules_text import build_embeds
+            await ch.send(embeds=[discord.Embed.from_dict(e) for e in build_embeds()])
+            return
         texts = {
-            "правила": texts_rules(),
             "🎫-подать-тикет": texts_ticket(),
             "анонсы-стримов": texts_stream_announce(),
         }
