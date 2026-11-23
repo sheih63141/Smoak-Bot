@@ -168,10 +168,15 @@ async def create_ticket(guild: discord.Guild, member: discord.Member, emoji: str
     return channel
 
 
+BOT_AUTHORS = {"Smoak Bot", "Ticket Tool", "Statbot"}
+
+
 async def close_ticket(channel: discord.TextChannel, by: discord.Member) -> None:
     lines = []
     try:
         async for m in channel.history(limit=500, oldest_first=True):
+            if m.author.bot and m.author.name in BOT_AUTHORS:
+                continue  # служебные сообщения бота в транскрипт не тянем
             stamp = m.created_at.strftime("%d.%m.%Y %H:%M")
             lines.append(f"[{stamp}] {m.author.display_name}: {m.content}")
             for a in m.attachments:
@@ -268,6 +273,10 @@ async def handle_raw_reaction_add(client: discord.Client, payload) -> bool:
         role_names = {r.name for r in member.roles}
         author_ok = channel.topic and f"({member.id})" in channel.topic
         if not (role_names & set(staff)) and not author_ok:
+            try:  # чужой 🔒 просто снимаем, иначе участник думает, что нажал «не туда»
+                await channel.get_partial_message(payload.message_id).remove_reaction(payload.emoji, member)
+            except discord.HTTPException:
+                pass
             return True
         await close_ticket(channel, member)
         return True
