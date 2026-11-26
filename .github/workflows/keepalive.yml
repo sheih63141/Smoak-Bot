@@ -1,0 +1,57 @@
+name: SmoakTeam bot keepalive
+
+# GitHub Actions регулярно ПРОПУСКАЕТ запуски по расписанию (в бою видели паузы
+# 3 и 9.5 часа). Пока бот офлайн, клики по 🎫 теряются навсегда.
+# Этот сторож каждые 10 минут смотрит: если ни одного запуска бота нет —
+# стартует его сам. Если бот уже работает — ничего не трогает.
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: smoakteam-keepalive
+  cancel-in-progress: false
+
+jobs:
+  ensure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Проверяю и при необходимости поднимаю бота
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+
+          repo = os.environ["REPO"]; tok = os.environ["GH_TOKEN"]
+          def api(url, method="GET", data=None):
+              req = urllib.request.Request(url, method=method,
+                  data=json.dumps(data).encode() if data else None)
+              req.add_header("Authorization", "Bearer " + tok)
+              req.add_header("Accept", "application/vnd.github+json")
+              req.add_header("User-Agent", "smoak-keepalive")
+              if data: req.add_header("Content-Type", "application/json")
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  raw = r.read()
+                  return json.loads(raw) if raw else {}
+
+          base = f"https://api.github.com/repos/{repo}/actions"
+          flows = api(base + "/workflows")["workflows"]
+          bot = next(w for w in flows if w["name"].strip().lower() == "smoakteam bot")
+          runs = api(f'{base}/workflows/{bot["id"]}/runs?per_page=10')["workflow_runs"]
+          live = [r for r in runs if r["status"] in ("in_progress", "queued")]
+          print("активных запусков бота:", len(live), [f'#{r["run_number"]}' for r in live])
+          if live:
+              print("бот уже работает — не трогаю")
+          else:
+              r = api(f'{base}/workflows/{bot["id"]}/dispatches', "POST", {"ref": "main"})
+              print("бот был офлайн → перезапущен (dispatch ok)")
+          PY

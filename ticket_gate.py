@@ -204,6 +204,65 @@ async def close_ticket(channel: discord.TextChannel, by: discord.Member) -> None
         print("[ticket]", e)
 
 
+def find_open(guild: discord.Guild, route: dict, user_id: int):
+    """Уже открытый тикет участника по этому направлению (ищем по topic, а не по имени)."""
+    cat = discord.utils.get(guild.categories, name=route["category"])
+    if cat is None:
+        return None
+    needle = f"({user_id})"
+    for ch in cat.text_channels:
+        if ch.topic and needle in ch.topic:
+            return ch
+    return None
+
+
+async def sweep_panel(client: discord.Client) -> None:
+    """Догоняем клики, которые пришли, пока бот был офлайн.
+
+    Discord не доставляет реакции задним числом: поставил человек 🎫, пока бот
+    спал, — событие потеряно навсегда. Поэтому при каждом старте смотрим на
+    панель и открываем тикеты по «висящим» реакциям людей.
+    """
+    for guild in client.guilds:
+        ch = discord.utils.get(guild.text_channels, name=PANEL_CHANNEL)
+        if ch is None:
+            continue
+        try:
+            msgs = [m async for m in ch.history(limit=20) if m.author.id == client.user.id]
+        except discord.HTTPException:
+            continue
+        for msg in msgs:
+            for r in msg.reactions:
+                emoji = str(r.emoji)
+                route = ROUTES.get(emoji)
+                if route is None or r.me and r.count <= 1:
+                    continue
+                try:
+                    users = [u async for u in r.users(limit=100)]
+                except discord.HTTPException:
+                    continue
+                for u in users:
+                    if u.bot:
+                        continue
+                    try:
+                        member = guild.get_member(u.id) or await guild.fetch_member(u.id)
+                    except discord.HTTPException:
+                        continue
+                    if find_open(guild, route, u.id) is not None:
+                        try:  # тикет уже есть — реакция больше не нужна
+                            await msg.remove_reaction(r.emoji, u)
+                        except discord.HTTPException:
+                            pass
+                        continue
+                    created = await create_ticket(guild, member, emoji)
+                    if created:
+                        try:
+                            await msg.remove_reaction(r.emoji, u)
+                        except discord.HTTPException:
+                            pass
+                        print(f"[ticket] догнал клик {emoji} от {member} → {created.name}")
+
+
 def _staff_names(channel: discord.TextChannel) -> list[str]:
     cat_name = getattr(channel.category, "name", "")
     for route in ROUTES.values():
@@ -324,3 +383,7 @@ async def on_ready(client: discord.Client) -> None:
         await ensure_panel(client)
     except Exception as e:
         print("[ticket]", repr(e))
+    try:
+        await sweep_panel(client)
+    except Exception as e:
+        print("[ticket] sweep:", repr(e))
